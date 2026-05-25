@@ -71,5 +71,10 @@
       <summary>调试模式</summary>
       <description>启用调试日志输出</description>
     </key>
+    <key name="panel-position" type="s">
+      <default>'right'</default>
+      <summary>面板位置</summary>
+      <description>扩展图标在顶部面板中的位置：left（靠左）、right（靠右）、center（居中）、far-left（最左）、far-right（最右）</description>
+    </key>
   </schema>
 </schemalist>

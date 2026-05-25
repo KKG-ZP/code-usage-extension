@@ -88,6 +88,29 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         settings.bind('show-icon', showIconRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         displayGroup.add(showIconRow);
 
+        const positionRow = new Adw.ComboRow({
+            title: _('面板位置'),
+            subtitle: _('选择扩展图标在顶部面板中的位置'),
+        });
+        const positionModel = new Gtk.StringList();
+        positionModel.append(_('靠右'));
+        positionModel.append(_('靠左'));
+        positionModel.append(_('居中'));
+        positionModel.append(_('最右'));
+        positionModel.append(_('最左'));
+        positionRow.set_model(positionModel);
+
+        const currentPos = settings.get_string('panel-position');
+        const posIndex = currentPos === 'left' ? 1 : currentPos === 'center' ? 2
+            : currentPos === 'far-right' ? 3 : currentPos === 'far-left' ? 4 : 0;
+        positionRow.set_selected(posIndex);
+
+        positionRow.connect('notify::selected', () => {
+            const positions = ['right', 'left', 'center', 'far-right', 'far-left'];
+            settings.set_string('panel-position', positions[positionRow.get_selected()]);
+        });
+        displayGroup.add(positionRow);
+
         const dateGroup = new Adw.PreferencesGroup({
             title: _('日期范围'),
             description: _('选择统计数据的日期范围'),
