@@ -167,6 +167,9 @@ export class DataProcessor {
             const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
             return (date) => date >= since;
         }
+        if (preset === 'all') {
+            return () => true;
+        }
         if (preset === 'custom' && (customSince || customUntil)) {
             const since = customSince || '';
             const until = customUntil || '';

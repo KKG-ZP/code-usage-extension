@@ -22,6 +22,7 @@ const DATE_PRESETS = [
     { id: 'today', label: _('今天') },
     { id: '7d', label: _('7天') },
     { id: '30d', label: _('30天') },
+    { id: 'all', label: _('全部') },
 ];
 
 export const CodeUsageIndicator = GObject.registerClass(
@@ -144,12 +145,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
 
         const heroHeader = new St.BoxLayout({ vertical: false });
-        const heroTitle = new St.Label({
-            text: _('代码用量概览'),
-            style_class: 'cu-section-title',
-        });
-        heroHeader.add_child(heroTitle);
-
         this._refreshButton = new St.Button({
             style_class: 'cu-refresh-button',
             reactive: true,
@@ -164,6 +159,28 @@ class CodeUsageIndicator extends PanelMenu.Button {
             this._refreshUsage();
         });
         heroHeader.add_child(this._refreshButton);
+
+        const heroTitle = new St.Label({
+            text: _('代码用量概览'),
+            style_class: 'cu-section-title',
+            x_expand: true,
+        });
+        heroHeader.add_child(heroTitle);
+
+        this._settingsButton = new St.Button({
+            style_class: 'cu-refresh-button',
+            reactive: true,
+            can_focus: true,
+        });
+        const settingsIcon = new St.Icon({
+            icon_name: 'preferences-system-symbolic',
+            icon_size: 14,
+        });
+        this._settingsButton.set_child(settingsIcon);
+        this._settingsButton.connect('clicked', () => {
+            this._openPreferences();
+        });
+        heroHeader.add_child(this._settingsButton);
 
         heroBox.add_child(heroHeader);
 
@@ -195,7 +212,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: true,
         });
         const modelTitle = new St.Label({
-            text: _('模型分布'),
+            text: _('模型'),
             style_class: 'cu-section-title',
         });
         modelSectionBox.add_child(modelTitle);
@@ -318,14 +335,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         dateItem.add_child(dateBox);
         this.menu.addMenuItem(dateItem);
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        const settingsItem = new PopupMenu.PopupMenuItem(_('设置'));
-        settingsItem.connect('activate', () => {
-            this._openPreferences();
-        });
-        this.menu.addMenuItem(settingsItem);
 
         this._updateDateButtonStyles();
     }
