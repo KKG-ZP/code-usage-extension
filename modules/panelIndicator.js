@@ -144,9 +144,18 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: true,
         });
 
-        const heroHeader = new St.BoxLayout({ vertical: false });
+        const heroHeader = new St.BoxLayout({ vertical: false, x_expand: true });
+
+        const heroTitle = new St.Label({
+            text: _('用量概览'),
+            style_class: 'cu-section-title',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.START,
+        });
+        heroHeader.add_child(heroTitle);
+
         this._refreshButton = new St.Button({
-            style_class: 'cu-refresh-button',
+            style_class: 'cu-action-button',
             reactive: true,
             can_focus: true,
         });
@@ -160,15 +169,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         heroHeader.add_child(this._refreshButton);
 
-        const heroTitle = new St.Label({
-            text: _('用量概览'),
-            style_class: 'cu-section-title',
-            x_expand: true,
-        });
-        heroHeader.add_child(heroTitle);
-
         this._settingsButton = new St.Button({
-            style_class: 'cu-refresh-button',
+            style_class: 'cu-action-button',
             reactive: true,
             can_focus: true,
         });
@@ -189,9 +191,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: false,
         });
 
-        this._requestCountCard = this._createStatCard(_('请求数'), '0');
-        this._tokenCountCard = this._createStatCard(_('Token'), '0');
-        this._costCard = this._createStatCard(_('费用'), '¥0.00');
+        this._requestCountCard = this._createStatCard(_('请求数'), '0', 'cu-stat-requests');
+        this._tokenCountCard = this._createStatCard(_('Token'), '0', 'cu-stat-tokens');
+        this._costCard = this._createStatCard(_('费用'), '¥0.00', 'cu-stat-cost');
 
         statsRow.add_child(this._requestCountCard);
         statsRow.add_child(this._tokenCountCard);
@@ -339,9 +341,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._updateDateButtonStyles();
     }
 
-    _createStatCard(labelText, valueText) {
+    _createStatCard(labelText, valueText, extraClass) {
         const card = new St.BoxLayout({
-            style_class: 'cu-stat-card',
+            style_class: `cu-stat-card ${extraClass}`,
             vertical: true,
             x_expand: true,
         });
@@ -551,25 +553,21 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const detailRow1 = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',
                 vertical: false,
+                x_expand: true,
             });
 
             const line1Labels = [
-                { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input' },
-                { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output' },
-                { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read' },
+                { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input', align: Clutter.ActorAlign.START },
+                { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output', align: Clutter.ActorAlign.CENTER },
+                { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read', align: Clutter.ActorAlign.END },
             ];
 
-            for (let j = 0; j < line1Labels.length; j++) {
-                if (j > 0) {
-                    const sep = new St.Label({
-                        text: '·',
-                        style_class: 'cu-token-separator',
-                    });
-                    detailRow1.add_child(sep);
-                }
+            for (const item of line1Labels) {
                 const lbl = new St.Label({
-                    text: line1Labels[j].text,
-                    style_class: line1Labels[j].style,
+                    text: item.text,
+                    style_class: item.style,
+                    x_expand: true,
+                    x_align: item.align,
                 });
                 detailRow1.add_child(lbl);
             }
@@ -579,25 +577,21 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const detailRow2 = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',
                 vertical: false,
+                x_expand: true,
             });
 
             const line2Labels = [
-                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit' },
-                { text: `${_('总量')} ${ms.totalTokensFormatted}`, style: 'cu-token-total' },
-                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests' },
+                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit', align: Clutter.ActorAlign.START },
+                { text: `${_('总量')} ${ms.totalTokensFormatted}`, style: 'cu-token-total', align: Clutter.ActorAlign.CENTER },
+                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests', align: Clutter.ActorAlign.END },
             ];
 
-            for (let j = 0; j < line2Labels.length; j++) {
-                if (j > 0) {
-                    const sep = new St.Label({
-                        text: '·',
-                        style_class: 'cu-token-separator',
-                    });
-                    detailRow2.add_child(sep);
-                }
+            for (const item of line2Labels) {
                 const lbl = new St.Label({
-                    text: line2Labels[j].text,
-                    style_class: line2Labels[j].style,
+                    text: item.text,
+                    style_class: item.style,
+                    x_expand: true,
+                    x_align: item.align,
                 });
                 detailRow2.add_child(lbl);
             }

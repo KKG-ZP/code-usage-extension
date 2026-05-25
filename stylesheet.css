@@ -40,10 +40,22 @@
 }
 
 .cu-stat-card {
-    background-color: rgba(0, 0, 0, 0.05);
     border-radius: 8px;
     padding: 8px 10px;
     spacing: 2px;
+}
+
+/* Stat cards with subtle brand tint */
+.cu-stat-requests {
+    background-color: rgba(91, 141, 239, 0.10);
+}
+
+.cu-stat-tokens {
+    background-color: rgba(52, 199, 89, 0.10);
+}
+
+.cu-stat-cost {
+    background-color: rgba(255, 159, 10, 0.10);
 }
 
 .cu-stat-value {
@@ -54,31 +66,33 @@
 
 .cu-stat-label {
     font-size: 11px;
+    font-weight: 600;
     color: #555555;
 }
 
 /* Section titles */
 .cu-section-title {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     color: #2a2a2a;
     padding: 4px 0;
 }
 
-/* Refresh button */
-.cu-refresh-button {
-    width: 24px;
-    height: 24px;
-    border-radius: 12px;
-    padding: 2px;
+/* Action buttons (refresh + settings) */
+.cu-action-button {
+    width: 26px;
+    height: 26px;
+    border-radius: 13px;
+    padding: 4px;
     background-color: rgba(0, 0, 0, 0.06);
+    margin-left: 4px;
 }
 
-.cu-refresh-button:hover {
+.cu-action-button:hover {
     background-color: rgba(0, 0, 0, 0.12);
 }
 
-.cu-refresh-button:active {
+.cu-action-button:active {
     background-color: rgba(0, 0, 0, 0.10);
 }
 
@@ -147,7 +161,8 @@
 }
 
 .cu-model-card {
-    background-color: rgba(0, 0, 0, 0.04);
+    background-color: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 8px;
     padding: 8px;
     spacing: 4px;
@@ -159,7 +174,7 @@
 
 .cu-model-agent-tag {
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     color: #ffffff;
     border-radius: 4px;
     padding: 1px 5px;
@@ -167,13 +182,14 @@
 
 .cu-model-name {
     font-size: 12px;
+    font-weight: 600;
     color: #2a2a2a;
     x-expand: true;
 }
 
 .cu-model-cost {
     font-size: 12px;
-    font-weight: bold;
+    font-weight: 700;
     color: #1a1a1a;
 }
 
@@ -186,54 +202,56 @@
 .cu-model-progress-bar {
     height: 6px;
     border-radius: 4px;
-    background-color: #4caf50;
+    background-color: #34C759;
 }
 
 .cu-model-cache-progress-bg {
-    background-color: rgba(66, 165, 245, 0.15) !important;
+    background-color: rgba(91, 141, 239, 0.15) !important;
 }
 
 .cu-model-cache-progress-bar {
-    background-color: #42a5f5 !important;
+    background-color: #5B8DEF !important;
 }
 
 .cu-model-detail-row {
-    spacing: 4px;
+    spacing: 8px;
 }
 
-.cu-token-separator {
-    font-size: 10px;
-    color: #999999;
-}
-
+/* Token labels - bold and modern color palette */
 .cu-token-input {
     font-size: 10px;
-    color: #42a5f5;
+    font-weight: 700;
+    color: #5B8DEF;
 }
 
 .cu-token-output {
     font-size: 10px;
-    color: #4caf50;
+    font-weight: 700;
+    color: #34C759;
 }
 
 .cu-token-cache-read {
     font-size: 10px;
-    color: #fb8c00;
+    font-weight: 700;
+    color: #FF9F0A;
 }
 
 .cu-token-requests {
     font-size: 10px;
-    color: #777777;
+    font-weight: 700;
+    color: #AF52DE;
 }
 
 .cu-token-cache-hit {
     font-size: 10px;
-    color: #42a5f5;
+    font-weight: 700;
+    color: #5856D6;
 }
 
 .cu-token-total {
     font-size: 10px;
-    color: #555555;
+    font-weight: 700;
+    color: #8E8E93;
 }
 
 .cu-empty-label {
@@ -254,11 +272,11 @@
     height: 6px;
     border-radius: 4px;
     transition: width 300ms ease-out;
-    background-color: #4caf50;
+    background-color: #34C759;
 }
 
 .cu-progress-bar.cu-usage-low {
-    background-color: #4caf50;
+    background-color: #34C759;
 }
 
 .cu-progress-bar.cu-usage-medium {
