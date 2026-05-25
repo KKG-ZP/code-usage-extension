@@ -136,31 +136,16 @@
     background-color: #4caf50;
 }
 
+.cu-model-cache-progress-bg {
+    background-color: rgba(66, 165, 245, 0.15) !important;
+}
+
+.cu-model-cache-progress-bar {
+    background-color: #42a5f5 !important;
+}
+
 .cu-model-detail-row {
     spacing: 4px;
-}
-
-.cu-model-cache-row {
-    spacing: 4px;
-    padding: 2px 0;
-}
-
-.cu-model-cache-bg {
-    background-color: rgba(66, 165, 245, 0.15);
-    border-radius: 3px;
-    height: 5px;
-    width: 100px;
-}
-
-.cu-model-cache-bar {
-    height: 5px;
-    border-radius: 3px;
-    background-color: #42a5f5;
-}
-
-.cu-model-cache-label {
-    font-size: 10px;
-    color: #42a5f5;
 }
 
 .cu-token-separator {
@@ -183,14 +168,14 @@
     color: #fb8c00;
 }
 
-.cu-token-cache-create {
-    font-size: 10px;
-    color: #ab47bc;
-}
-
 .cu-token-requests {
     font-size: 10px;
     color: #777777;
+}
+
+.cu-token-cache-hit {
+    font-size: 10px;
+    color: #42a5f5;
 }
 
 .cu-empty-label {

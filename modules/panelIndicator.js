@@ -454,29 +454,17 @@ class CodeUsageIndicator extends PanelMenu.Button {
             progressBg.add_child(progressBar);
             card.add_child(progressBg);
 
-            const cacheRow = new St.BoxLayout({
-                style_class: 'cu-model-cache-row',
-                vertical: false,
+            const cacheProgressBg = new St.Widget({
+                style_class: 'cu-model-progress-bg cu-model-cache-progress-bg',
+                x_expand: true,
             });
-
-            const cacheBg = new St.Widget({
-                style_class: 'cu-model-cache-bg',
+            const cacheProgressBar = new St.Widget({
+                style_class: 'cu-model-progress-bar cu-model-cache-progress-bar',
             });
-            const cacheBar = new St.Widget({
-                style_class: 'cu-model-cache-bar',
-            });
-            const cacheBarWidth = Math.round(ms.cacheHitRate * 100);
-            cacheBar.set_width(Math.max(cacheBarWidth, 2));
-            cacheBg.add_child(cacheBar);
-            cacheRow.add_child(cacheBg);
-
-            const cacheLabel = new St.Label({
-                text: `${_('缓存')} ${ms.cacheHitRateFormatted}`,
-                style_class: 'cu-model-cache-label',
-            });
-            cacheRow.add_child(cacheLabel);
-
-            card.add_child(cacheRow);
+            const cacheBarWidth = Math.round(ms.cacheHitRate * 200);
+            cacheProgressBar.set_width(Math.max(cacheBarWidth, 2));
+            cacheProgressBg.add_child(cacheProgressBar);
+            card.add_child(cacheProgressBg);
 
             const detailRow = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',
@@ -487,8 +475,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input' },
                 { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output' },
                 { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read' },
-                { text: `${_('缓存写')} ${ms.cacheCreationTokensFormatted}`, style: 'cu-token-cache-create' },
                 { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests' },
+                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit' },
             ];
 
             for (let j = 0; j < tokenLabels.length; j++) {
