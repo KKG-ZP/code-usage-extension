@@ -10,6 +10,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { DataSource } from './dataSource.js';
 import { DataProcessor } from './dataProcessor.js';
+import { AGENT_BRAND_COLORS } from './defaultPricing.js';
 
 let _ = (s) => s;
 
@@ -211,44 +212,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const cacheBox = new St.BoxLayout({
-            style_class: 'cu-cache-section',
-            vertical: true,
-        });
-
-        const cacheHeader = new St.BoxLayout({ vertical: false });
-        const cacheTitle = new St.Label({
-            text: _('缓存命中率'),
-            style_class: 'cu-section-title',
-        });
-        cacheHeader.add_child(cacheTitle);
-        this._cacheHitRateLabel = new St.Label({
-            text: '0.0%',
-            style_class: 'cu-cache-label',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.END,
-        });
-        cacheHeader.add_child(this._cacheHitRateLabel);
-        cacheBox.add_child(cacheHeader);
-
-        const cacheProgressBg = new St.Widget({
-            style_class: 'cu-progress-bg cu-cache-bg',
-        });
-        this._cacheProgressBar = new St.Widget({
-            style_class: 'cu-progress-bar cu-cache-bar',
-        });
-        cacheProgressBg.add_child(this._cacheProgressBar);
-        cacheBox.add_child(cacheProgressBg);
-
-        const cacheItem = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        cacheItem.add_child(cacheBox);
-        this.menu.addMenuItem(cacheItem);
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
         const dateBox = new St.BoxLayout({
             style_class: 'cu-date-section',
             vertical: true,
@@ -433,10 +396,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._costCard._valueLabel.set_text(data.totalCostFormatted);
 
         this._updateModelList(data);
-
-        this._cacheHitRateLabel.set_text(data.cacheHitRateFormatted);
-        const cacheWidth = Math.round(data.cacheHitRate * 200);
-        this._cacheProgressBar.set_width(Math.max(cacheWidth, 2));
     }
 
     _updateModelList(data) {
@@ -460,10 +419,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 vertical: false,
             });
 
+            const agentColor = AGENT_BRAND_COLORS[ms.agent] || '#3584e4';
             const agentTag = new St.Label({
                 text: ms.agentName,
                 style_class: 'cu-model-agent-tag',
             });
+            agentTag.set_style(`background-color: ${agentColor};`);
             headerRow.add_child(agentTag);
 
             const name = new St.Label({
@@ -492,6 +453,30 @@ class CodeUsageIndicator extends PanelMenu.Button {
             progressBar.set_width(Math.max(barWidth, 4));
             progressBg.add_child(progressBar);
             card.add_child(progressBg);
+
+            const cacheRow = new St.BoxLayout({
+                style_class: 'cu-model-cache-row',
+                vertical: false,
+            });
+
+            const cacheBg = new St.Widget({
+                style_class: 'cu-model-cache-bg',
+            });
+            const cacheBar = new St.Widget({
+                style_class: 'cu-model-cache-bar',
+            });
+            const cacheBarWidth = Math.round(ms.cacheHitRate * 100);
+            cacheBar.set_width(Math.max(cacheBarWidth, 2));
+            cacheBg.add_child(cacheBar);
+            cacheRow.add_child(cacheBg);
+
+            const cacheLabel = new St.Label({
+                text: `${_('缓存')} ${ms.cacheHitRateFormatted}`,
+                style_class: 'cu-model-cache-label',
+            });
+            cacheRow.add_child(cacheLabel);
+
+            card.add_child(cacheRow);
 
             const detailRow = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',

@@ -164,6 +164,23 @@ export const AGENT_DISPLAY_NAMES = {
     copilot: 'Copilot CLI',
 };
 
+export const AGENT_BRAND_COLORS = {
+    claude: '#D97757',
+    codex: '#10A37F',
+    gemini: '#4285F4',
+    opencode: '#FAB387',
+    amp: '#A112FF',
+    codebuff: '#22C55E',
+    hermes: '#E5A50A',
+    pi: '#00AAFF',
+    goose: '#F97316',
+    openclaw: '#FF4136',
+    kilo: '#3B82F6',
+    kimi: '#22D3EE',
+    qwen: '#6354E5',
+    copilot: '#8534F3',
+};
+
 export const AGENT_APP_TYPE_MAP = {
     claude: 'claude',
     codex: 'codex',

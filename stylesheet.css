@@ -108,7 +108,6 @@
     font-size: 10px;
     font-weight: 600;
     color: #ffffff;
-    background-color: #3584e4;
     border-radius: 4px;
     padding: 1px 5px;
 }
@@ -139,6 +138,29 @@
 
 .cu-model-detail-row {
     spacing: 4px;
+}
+
+.cu-model-cache-row {
+    spacing: 4px;
+    padding: 2px 0;
+}
+
+.cu-model-cache-bg {
+    background-color: rgba(66, 165, 245, 0.15);
+    border-radius: 3px;
+    height: 5px;
+    width: 100px;
+}
+
+.cu-model-cache-bar {
+    height: 5px;
+    border-radius: 3px;
+    background-color: #42a5f5;
+}
+
+.cu-model-cache-label {
+    font-size: 10px;
+    color: #42a5f5;
 }
 
 .cu-token-separator {
@@ -206,30 +228,6 @@
 
 .cu-progress-bar.cu-usage-critical {
     background-color: #ef4444;
-}
-
-/* Cache hit rate */
-.cu-cache-section {
-    padding: 4px 0;
-    spacing: 4px;
-    min-width: 280px;
-}
-
-.cu-cache-bg {
-    background-color: rgba(66, 165, 245, 0.15);
-}
-
-.cu-cache-bar {
-    height: 8px;
-    border-radius: 4px;
-    background-color: #42a5f5;
-    transition: width 300ms ease-out;
-}
-
-.cu-cache-label {
-    font-size: 13px;
-    font-weight: bold;
-    color: #42a5f5;
 }
 
 /* Date range */

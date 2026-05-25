@@ -143,6 +143,8 @@ export class DataProcessor {
                 outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
                 cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
                 cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
+                cacheHitRate: calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens),
+                cacheHitRateFormatted: `${(calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens) * 100).toFixed(1)}%`,
             })),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
