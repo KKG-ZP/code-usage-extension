@@ -30,9 +30,8 @@
 
 /* Hero stats section */
 .cu-hero-box {
-    padding: 8px 0;
+    padding: 8px 8px;
     spacing: 8px;
-    min-width: 280px;
 }
 
 .cu-stats-row {

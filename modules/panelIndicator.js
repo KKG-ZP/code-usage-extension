@@ -161,7 +161,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         heroHeader.add_child(this._refreshButton);
 
         const heroTitle = new St.Label({
-            text: _('代码用量概览'),
+            text: _('用量概览'),
             style_class: 'cu-section-title',
             x_expand: true,
         });
