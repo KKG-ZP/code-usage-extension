@@ -93,6 +93,59 @@
     spacing: 6px;
 }
 
+.cu-model-expander {
+    padding: 4px 0;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.04);
+    color: #555555;
+    font-size: 11px;
+    font-weight: 500;
+    min-width: 260px;
+}
+
+.cu-model-expander:hover {
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+.cu-model-expander:active {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.cu-model-pagination {
+    spacing: 6px;
+    padding: 2px 0;
+}
+
+.cu-model-page-btn {
+    padding: 2px 10px;
+    border-radius: 10px;
+    background-color: rgba(0, 0, 0, 0.06);
+    color: #333333;
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+.cu-model-page-btn:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+}
+
+.cu-model-page-btn-disabled {
+    color: #999999;
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.cu-model-page-btn-disabled:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.cu-model-page-label {
+    font-size: 11px;
+    color: #666666;
+    padding: 2px 4px;
+}
+
 .cu-model-card {
     background-color: rgba(0, 0, 0, 0.04);
     border-radius: 8px;

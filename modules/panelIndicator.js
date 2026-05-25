@@ -36,6 +36,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._processor = new DataProcessor(settings);
         this._lastData = null;
         this._refreshing = false;
+        this._modelExpanded = false;
+        this._modelPage = 0;
+        this._modelListData = [];
 
         this._box = new St.BoxLayout({
             style_class: 'cu-panel-status-box',
@@ -202,6 +205,67 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: true,
         });
         modelSectionBox.add_child(this._modelListContainer);
+
+        this._modelExpander = new St.Button({
+            style_class: 'cu-model-expander',
+            reactive: true,
+            can_focus: true,
+            label: _('展开更多 ▼'),
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._modelExpander.connect('clicked', () => {
+            this._modelExpanded = !this._modelExpanded;
+            this._modelPage = 0;
+            this._renderModelList();
+        });
+        modelSectionBox.add_child(this._modelExpander);
+
+        this._modelPaginationBox = new St.BoxLayout({
+            style_class: 'cu-model-pagination',
+            vertical: false,
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+
+        this._modelPagePrev = new St.Button({
+            style_class: 'cu-model-page-btn',
+            reactive: true,
+            can_focus: true,
+            label: '‹',
+        });
+        this._modelPagePrev.connect('clicked', () => {
+            if (this._modelPage > 0) {
+                this._modelPage--;
+                this._renderModelList();
+            }
+        });
+        this._modelPaginationBox.add_child(this._modelPagePrev);
+
+        this._modelPageLabel = new St.Label({
+            text: '1/1',
+            style_class: 'cu-model-page-label',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._modelPaginationBox.add_child(this._modelPageLabel);
+
+        this._modelPageNext = new St.Button({
+            style_class: 'cu-model-page-btn',
+            reactive: true,
+            can_focus: true,
+            label: '›',
+        });
+        this._modelPageNext.connect('clicked', () => {
+            const models = this._modelListData;
+            const totalPages = Math.ceil(models.length / 10);
+            if (this._modelPage < totalPages - 1) {
+                this._modelPage++;
+                this._renderModelList();
+            }
+        });
+        this._modelPaginationBox.add_child(this._modelPageNext);
+
+        modelSectionBox.add_child(this._modelPaginationBox);
 
         const modelSectionItem = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
@@ -399,15 +463,24 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     _updateModelList(data) {
+        this._modelListData = data.modelStats || [];
+        this._renderModelList();
+    }
+
+    _renderModelList() {
         const children = this._modelListContainer.get_children();
         for (const child of children) {
             this._modelListContainer.remove_child(child);
         }
 
-        const models = data.modelStats || [];
-        const maxModels = 5;
+        const models = this._modelListData;
+        const expanded = this._modelExpanded;
+        const pageSize = expanded ? 10 : 5;
+        const page = expanded ? this._modelPage : 0;
+        const start = page * pageSize;
+        const end = Math.min(start + pageSize, models.length);
 
-        for (let i = 0; i < Math.min(models.length, maxModels); i++) {
+        for (let i = start; i < end; i++) {
             const ms = models[i];
             const card = new St.BoxLayout({
                 style_class: 'cu-model-card',
@@ -504,6 +577,31 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 style_class: 'cu-empty-label',
             });
             this._modelListContainer.add_child(empty);
+        }
+
+        if (models.length > 5) {
+            this._modelExpander.show();
+            this._modelExpander.set_label(expanded ? _('收起 ▲') : _('展开更多 ▼'));
+        } else {
+            this._modelExpander.hide();
+        }
+
+        if (expanded && models.length > 10) {
+            this._modelPaginationBox.show();
+            const totalPages = Math.ceil(models.length / 10);
+            this._modelPageLabel.set_text(`${page + 1}/${totalPages}`);
+            if (page <= 0) {
+                this._modelPagePrev.add_style_class_name('cu-model-page-btn-disabled');
+            } else {
+                this._modelPagePrev.remove_style_class_name('cu-model-page-btn-disabled');
+            }
+            if (page >= totalPages - 1) {
+                this._modelPageNext.add_style_class_name('cu-model-page-btn-disabled');
+            } else {
+                this._modelPageNext.remove_style_class_name('cu-model-page-btn-disabled');
+            }
+        } else {
+            this._modelPaginationBox.hide();
         }
     }
 
