@@ -548,35 +548,61 @@ class CodeUsageIndicator extends PanelMenu.Button {
             cacheProgressBg.add_child(cacheProgressBar);
             card.add_child(cacheProgressBg);
 
-            const detailRow = new St.BoxLayout({
+            const detailRow1 = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',
                 vertical: false,
             });
 
-            const tokenLabels = [
+            const line1Labels = [
                 { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input' },
                 { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output' },
                 { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read' },
-                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests' },
-                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit' },
             ];
 
-            for (let j = 0; j < tokenLabels.length; j++) {
+            for (let j = 0; j < line1Labels.length; j++) {
                 if (j > 0) {
                     const sep = new St.Label({
                         text: '·',
                         style_class: 'cu-token-separator',
                     });
-                    detailRow.add_child(sep);
+                    detailRow1.add_child(sep);
                 }
                 const lbl = new St.Label({
-                    text: tokenLabels[j].text,
-                    style_class: tokenLabels[j].style,
+                    text: line1Labels[j].text,
+                    style_class: line1Labels[j].style,
                 });
-                detailRow.add_child(lbl);
+                detailRow1.add_child(lbl);
             }
 
-            card.add_child(detailRow);
+            card.add_child(detailRow1);
+
+            const detailRow2 = new St.BoxLayout({
+                style_class: 'cu-model-detail-row',
+                vertical: false,
+            });
+
+            const line2Labels = [
+                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit' },
+                { text: `${_('总量')} ${ms.totalTokensFormatted}`, style: 'cu-token-total' },
+                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests' },
+            ];
+
+            for (let j = 0; j < line2Labels.length; j++) {
+                if (j > 0) {
+                    const sep = new St.Label({
+                        text: '·',
+                        style_class: 'cu-token-separator',
+                    });
+                    detailRow2.add_child(sep);
+                }
+                const lbl = new St.Label({
+                    text: line2Labels[j].text,
+                    style_class: line2Labels[j].style,
+                });
+                detailRow2.add_child(lbl);
+            }
+
+            card.add_child(detailRow2);
             this._modelListContainer.add_child(card);
         }
 

@@ -30,8 +30,9 @@
 
 /* Hero stats section */
 .cu-hero-box {
-    padding: 8px 8px;
+    padding: 8px 0;
     spacing: 8px;
+    min-width: 280px;
 }
 
 .cu-stats-row {
@@ -228,6 +229,11 @@
 .cu-token-cache-hit {
     font-size: 10px;
     color: #42a5f5;
+}
+
+.cu-token-total {
+    font-size: 10px;
+    color: #555555;
 }
 
 .cu-empty-label {
