@@ -50,11 +50,11 @@ export class DataProcessor {
             };
 
             let entryCost = 0;
-            if (pricing) {
+            if (entry.costUSD != null) {
+                entryCost = entry.costUSD * costMultiplier;
+            } else if (pricing) {
                 const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier);
                 entryCost = cost.totalCost;
-            } else if (entry.costUSD != null) {
-                entryCost = entry.costUSD * costMultiplier;
             }
 
             totalRequests += 1;

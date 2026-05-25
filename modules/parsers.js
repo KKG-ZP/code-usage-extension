@@ -268,7 +268,7 @@ export function parseKimiLine(line, filePath) {
         return {
             date: _extractDate(raw.timestamp),
             model: 'kimi',
-            inputTokens: (tu.input_other || 0) + (tu.input_cache_read || 0) + (tu.input_cache_creation || 0),
+            inputTokens: tu.input_other || 0,
             outputTokens: tu.output || 0,
             cacheCreationTokens: tu.input_cache_creation || 0,
             cacheReadTokens: tu.input_cache_read || 0,
