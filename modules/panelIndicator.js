@@ -10,7 +10,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { DataSource } from './dataSource.js';
 import { DataProcessor } from './dataProcessor.js';
-import { AGENT_BRAND_COLORS } from './defaultPricing.js';
+import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 
 let _ = (s) => s;
 
@@ -504,11 +504,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
             });
 
             const agentColor = AGENT_BRAND_COLORS[ms.agent] || '#3584e4';
+            const agentTextColor = AGENT_BRAND_TEXT_COLORS[ms.agent] || '#ffffff';
             const agentTag = new St.Label({
                 text: ms.agentName,
                 style_class: 'cu-model-agent-tag',
             });
-            agentTag.set_style(`background-color: ${agentColor};`);
+            agentTag.set_style(`background-color: ${agentColor}; color: ${agentTextColor};`);
             headerRow.add_child(agentTag);
 
             const name = new St.Label({

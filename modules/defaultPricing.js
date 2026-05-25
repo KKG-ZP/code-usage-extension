@@ -168,7 +168,7 @@ export const AGENT_BRAND_COLORS = {
     claude: '#D97757',
     codex: '#10A37F',
     gemini: '#4285F4',
-    opencode: '#FAB387',
+    opencode: '#f0eded',
     amp: '#A112FF',
     codebuff: '#22C55E',
     hermes: '#E5A50A',
@@ -179,6 +179,10 @@ export const AGENT_BRAND_COLORS = {
     kimi: '#22D3EE',
     qwen: '#6354E5',
     copilot: '#8534F3',
+};
+
+export const AGENT_BRAND_TEXT_COLORS = {
+    opencode: '#423f3f',
 };
 
 export const AGENT_APP_TYPE_MAP = {
