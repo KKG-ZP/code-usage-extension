@@ -39,11 +39,14 @@ const AGENT_CONFIGS = {
         appType: 'codex',
         dirs: () => {
             const home = GLib.getenv('CODEX_HOME') || GLib.build_filenamev([GLib.get_home_dir(), '.codex']);
-            return [GLib.build_filenamev([home, 'sessions'])];
+            return [
+                GLib.build_filenamev([home, 'sessions']),
+                GLib.build_filenamev([home, 'archived_sessions']),
+            ];
         },
         pattern: /\.jsonl$/,
         parse: parseCodexLine,
-        recursive: false,
+        recursive: true,
     },
     gemini: {
         name: 'Gemini CLI',
@@ -106,7 +109,11 @@ const AGENT_CONFIGS = {
         dirs: () => {
             const d = GLib.getenv('COPILOT_OTEL_FILE_EXPORTER_PATH');
             if (d) return [d];
-            return [GLib.build_filenamev([GLib.get_home_dir(), '.copilot', 'otel'])];
+            const home = GLib.get_home_dir();
+            return [
+                GLib.build_filenamev([home, '.copilot', 'session-state']),
+                GLib.build_filenamev([home, '.copilot', 'otel']),
+            ];
         },
         pattern: /\.jsonl$/,
         parse: parseCopilotLine,
@@ -168,8 +175,26 @@ const AGENT_CONFIGS = {
         name: 'Hermes',
         appType: 'hermes',
         dirs: () => {
-            const d = GLib.getenv('HERMES_HOME') || GLib.build_filenamev([GLib.get_home_dir(), '.hermes']);
-            return [d];
+            const base = GLib.getenv('HERMES_HOME') || GLib.build_filenamev([GLib.get_home_dir(), '.hermes']);
+            const dirs = [base];
+            const profilesDir = GLib.build_filenamev([base, 'profiles']);
+            const dir = Gio.File.new_for_path(profilesDir);
+            if (dir.query_exists(null)) {
+                try {
+                    const enumerator = dir.enumerate_children(
+                        'standard::name,standard::type',
+                        Gio.FileQueryInfoFlags.NONE, null
+                    );
+                    let info;
+                    while ((info = enumerator.next_file(null)) !== null) {
+                        if (info.get_file_type() === Gio.FileType.DIRECTORY) {
+                            dirs.push(GLib.build_filenamev([profilesDir, info.get_name()]));
+                        }
+                    }
+                    enumerator.close(null);
+                } catch { /* ignore */ }
+            }
+            return dirs;
         },
         pattern: null,
         sqlite: true,

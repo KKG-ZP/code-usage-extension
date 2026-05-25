@@ -46,32 +46,41 @@ function _extractClaudeUsage(raw, costUSD) {
     };
 }
 
-// ═══════════════════════════════════════
-// Codex (OpenAI)
-// ═══════════════════════════════════════
+const _codexSessionModels = new Map();
+
 export function parseCodexLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
+
+        if (raw.type === 'session_meta') {
+            const model = raw.payload?.model_provider || raw.payload?.model || raw.payload?.cli_version;
+            if (model) _codexSessionModels.set(filePath, model);
+            return null;
+        }
+
+        if (raw.payload?.type === 'turn_context') return null;
 
         let usage = null;
         let model = null;
         let timestamp = null;
 
         if (raw.type === 'event_msg' && raw.payload?.type === 'token_count') {
-            usage = raw.payload.info?.total_token_usage || raw.payload.info?.last_token_usage;
-            model = raw.payload.info?.model || raw.payload.info?.model_name || raw.payload.model;
+            const info = raw.payload.info;
+            if (!info) return null;
+            usage = info.last_token_usage || info.total_token_usage;
+            model = info.model || info.model_name || raw.payload.model || _codexSessionModels.get(filePath);
             timestamp = raw.timestamp;
         } else if (raw.type === 'turn.completed' && raw.usage) {
             usage = raw.usage;
-            model = raw.model;
+            model = raw.model || _codexSessionModels.get(filePath);
             timestamp = raw.timestamp;
         } else if (raw.type === 'result' && raw.data) {
             usage = raw.data.usage;
-            model = raw.data.model_name || raw.data.model;
+            model = raw.data.model_name || raw.data.model || _codexSessionModels.get(filePath);
             timestamp = raw.data.timestamp;
         }
 
-        if (raw.payload?.type === 'turn_context' || !usage) return null;
+        if (!usage) return null;
 
         if (typeof timestamp === 'number') {
             timestamp = new Date(timestamp).toISOString();
@@ -392,11 +401,10 @@ export function parseCodeBuffFile(content, filePath, agent) {
 export async function parseSQLiteAgent(agent, dbPath, config) {
     return new Promise((resolve) => {
         try {
-            const argv = ['sqlite3', dbPath, '-json'];
             let sql;
 
             if (agent === 'opencode' || agent === 'kilo') {
-                sql = 'SELECT id, session_id, data FROM message';
+                sql = "SELECT data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
             } else if (agent === 'goose') {
                 sql = 'SELECT id, model_config_json, provider_name, created_at, accumulated_input_tokens, accumulated_output_tickets, total_tokens FROM sessions';
             } else if (agent === 'hermes') {
@@ -406,7 +414,7 @@ export async function parseSQLiteAgent(agent, dbPath, config) {
                 return;
             }
 
-            argv.push(sql);
+            const argv = ['sqlite3', '-json', dbPath, sql];
 
             const subprocess = Gio.Subprocess.new(
                 argv,
@@ -441,7 +449,7 @@ function _parseSQLiteRow(agent, row) {
     if (agent === 'opencode' || agent === 'kilo') {
         try {
             const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
-            if (data.role !== 'assistant') return null;
+            if (!data) return null;
             const tokens = data.tokens || {};
             return {
                 date: _extractDate(data.time?.created),
