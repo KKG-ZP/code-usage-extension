@@ -556,22 +556,31 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 x_expand: true,
             });
 
-            const line1Labels = [
-                { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input', align: Clutter.ActorAlign.START },
-                { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output', align: Clutter.ActorAlign.CENTER },
-                { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read', align: Clutter.ActorAlign.END },
-            ];
+            const row1Col1 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row1Col2 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row1Col3 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
 
-            for (const item of line1Labels) {
-                const lbl = new St.Label({
-                    text: item.text,
-                    style_class: item.style,
-                    x_expand: true,
-                    x_align: item.align,
-                });
-                detailRow1.add_child(lbl);
-            }
+            const inputLbl = new St.Label({
+                text: `${_('输入')} ${ms.inputTokensFormatted}`,
+                style_class: 'cu-token-input',
+            });
+            row1Col1.add_child(inputLbl);
 
+            const outputLbl = new St.Label({
+                text: `${_('输出')} ${ms.outputTokensFormatted}`,
+                style_class: 'cu-token-output',
+            });
+            row1Col2.add_child(outputLbl);
+
+            const cacheReadLbl = new St.Label({
+                text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`,
+                style_class: 'cu-token-cache-read',
+            });
+            row1Col3.add_child(cacheReadLbl);
+
+            detailRow1.add_child(row1Col1);
+            detailRow1.add_child(row1Col2);
+            detailRow1.add_child(row1Col3);
             card.add_child(detailRow1);
 
             const detailRow2 = new St.BoxLayout({
@@ -580,22 +589,31 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 x_expand: true,
             });
 
-            const line2Labels = [
-                { text: `${_('命中率')} ${ms.cacheHitRateFormatted}`, style: 'cu-token-cache-hit', align: Clutter.ActorAlign.START },
-                { text: `${_('总量')} ${ms.totalTokensFormatted}`, style: 'cu-token-total', align: Clutter.ActorAlign.CENTER },
-                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests', align: Clutter.ActorAlign.END },
-            ];
+            const row2Col1 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row2Col2 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row2Col3 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
 
-            for (const item of line2Labels) {
-                const lbl = new St.Label({
-                    text: item.text,
-                    style_class: item.style,
-                    x_expand: true,
-                    x_align: item.align,
-                });
-                detailRow2.add_child(lbl);
-            }
+            const hitRateLbl = new St.Label({
+                text: `${_('命中率')} ${ms.cacheHitRateFormatted}`,
+                style_class: 'cu-token-cache-hit',
+            });
+            row2Col1.add_child(hitRateLbl);
 
+            const totalLbl = new St.Label({
+                text: `${_('总量')} ${ms.totalTokensFormatted}`,
+                style_class: 'cu-token-total',
+            });
+            row2Col2.add_child(totalLbl);
+
+            const requestsLbl = new St.Label({
+                text: `${_('请求数')} ${ms.requestCount}`,
+                style_class: 'cu-token-requests',
+            });
+            row2Col3.add_child(requestsLbl);
+
+            detailRow2.add_child(row2Col1);
+            detailRow2.add_child(row2Col2);
+            detailRow2.add_child(row2Col3);
             card.add_child(detailRow2);
             this._modelListContainer.add_child(card);
         }
