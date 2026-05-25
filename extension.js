@@ -17,7 +17,9 @@ export default class CodeUsageExtension extends Extension {
         } else {
             box = Main.panel._rightBox;
         }
-        if (pos.startsWith('far-')) {
+        // far-left 插入左 box 最前方（最左靠边），right 插入右 box 最前方（靠右近中）
+        // 其他情况 add_child：far-right 追加到右 box 末尾（最右靠边），left 追加到左 box 末尾（靠左近中）
+        if (pos === 'far-left' || pos === 'right') {
             box.insert_child_at_index(this._indicator, 0);
         } else {
             box.add_child(this._indicator);
