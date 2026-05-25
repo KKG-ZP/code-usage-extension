@@ -1,0 +1,203 @@
+.cu-panel-status-box {
+    spacing: 4px;
+}
+
+.cu-panel-icon {
+    margin-right: 4px;
+    icon-size: 16px;
+}
+
+.cu-panel-label {
+    font-size: 12px;
+    font-weight: bold;
+    color: #1a1a1a;
+}
+
+.cu-panel-progress-bg {
+    background-color: rgba(0, 0, 0, 0.12);
+    border-radius: 3px;
+    height: 10px;
+    width: 50px;
+    margin-left: 4px;
+}
+
+.cu-panel-progress-bar {
+    height: 10px;
+    border-radius: 3px;
+    transition: width 300ms ease-out;
+    background-color: #4caf50;
+}
+
+/* Hero stats section */
+.cu-hero-box {
+    padding: 8px 0;
+    spacing: 8px;
+    min-width: 280px;
+}
+
+.cu-stats-row {
+    spacing: 8px;
+}
+
+.cu-stat-card {
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    padding: 8px 10px;
+    spacing: 2px;
+}
+
+.cu-stat-value {
+    font-size: 16px;
+    font-weight: bold;
+    color: #1a1a1a;
+}
+
+.cu-stat-label {
+    font-size: 11px;
+    color: #555555;
+}
+
+/* Section titles */
+.cu-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2a2a2a;
+    padding: 4px 0;
+}
+
+/* Refresh button */
+.cu-refresh-button {
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    padding: 2px;
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.cu-refresh-button:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+}
+
+.cu-refresh-button:active {
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+/* Model distribution */
+.cu-model-section {
+    padding: 4px 0;
+    spacing: 4px;
+    min-width: 280px;
+}
+
+.cu-model-list {
+    spacing: 4px;
+}
+
+.cu-model-row {
+    spacing: 6px;
+    padding: 2px 0;
+}
+
+.cu-model-name {
+    font-size: 12px;
+    color: #2a2a2a;
+    width: 110px;
+}
+
+.cu-model-cost {
+    font-size: 12px;
+    font-weight: bold;
+    color: #1a1a1a;
+    min-width: 55px;
+}
+
+.cu-empty-label {
+    font-size: 12px;
+    color: #888888;
+    padding: 4px 0;
+}
+
+/* Progress bars */
+.cu-progress-bg {
+    background-color: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+    height: 6px;
+    width: 100px;
+}
+
+.cu-progress-bar {
+    height: 6px;
+    border-radius: 4px;
+    transition: width 300ms ease-out;
+    background-color: #4caf50;
+}
+
+.cu-progress-bar.cu-usage-low {
+    background-color: #4caf50;
+}
+
+.cu-progress-bar.cu-usage-medium {
+    background-color: #eab308;
+}
+
+.cu-progress-bar.cu-usage-high {
+    background-color: #f97316;
+}
+
+.cu-progress-bar.cu-usage-critical {
+    background-color: #ef4444;
+}
+
+/* Cache hit rate */
+.cu-cache-section {
+    padding: 4px 0;
+    spacing: 4px;
+    min-width: 280px;
+}
+
+.cu-cache-bg {
+    background-color: rgba(66, 165, 245, 0.15);
+}
+
+.cu-cache-bar {
+    height: 8px;
+    border-radius: 4px;
+    background-color: #42a5f5;
+    transition: width 300ms ease-out;
+}
+
+.cu-cache-label {
+    font-size: 13px;
+    font-weight: bold;
+    color: #42a5f5;
+}
+
+/* Date range */
+.cu-date-section {
+    padding: 4px 0;
+    spacing: 4px;
+    min-width: 280px;
+}
+
+.cu-date-button-row {
+    spacing: 8px;
+}
+
+.cu-date-button {
+    padding: 4px 12px;
+    border-radius: 14px;
+    background-color: rgba(0, 0, 0, 0.06);
+    color: #333333;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.cu-date-button:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+    color: #1a1a1a;
+}
+
+.cu-date-button.active {
+    background-color: #3584e4;
+    color: #ffffff;
+}

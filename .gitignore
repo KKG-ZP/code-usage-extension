@@ -1,0 +1,13 @@
+# Reference projects (not part of the extension)
+github/
+
+# Compiled GSettings schema
+schemas/gschemas.compiled
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

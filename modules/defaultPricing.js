@@ -1,0 +1,165 @@
+// Ported from cc-switch src-tauri/src/database/schema.rs
+// All prices are USD per 1M tokens
+
+export const DEFAULT_PRICING = {
+    // === Claude Models ===
+    'claude-opus-4-7': { displayName: 'Claude Opus 4.7', input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
+    'claude-opus-4-6-20260206': { displayName: 'Claude Opus 4.6', input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
+    'claude-sonnet-4-6-20260217': { displayName: 'Claude Sonnet 4.6', input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
+    'claude-opus-4-5-20251101': { displayName: 'Claude Opus 4.5', input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
+    'claude-sonnet-4-5-20250929': { displayName: 'Claude Sonnet 4.5', input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
+    'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', input: 1, output: 5, cacheRead: 0.10, cacheWrite: 1.25 },
+    'claude-opus-4-20250514': { displayName: 'Claude Opus 4', input: 15, output: 75, cacheRead: 1.50, cacheWrite: 18.75 },
+    'claude-opus-4-1-20250805': { displayName: 'Claude Opus 4.1', input: 15, output: 75, cacheRead: 1.50, cacheWrite: 18.75 },
+    'claude-sonnet-4-20250514': { displayName: 'Claude Sonnet 4', input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
+    'claude-3-5-haiku-20241022': { displayName: 'Claude 3.5 Haiku', input: 0.80, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+    'claude-3-5-sonnet-20241022': { displayName: 'Claude 3.5 Sonnet', input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
+
+    // === GPT-5.x Series ===
+    'gpt-5.5': { displayName: 'GPT-5.5', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.5-low': { displayName: 'GPT-5.5 Low', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.5-medium': { displayName: 'GPT-5.5 Medium', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.5-high': { displayName: 'GPT-5.5 High', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.5-xhigh': { displayName: 'GPT-5.5 XHigh', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.5-minimal': { displayName: 'GPT-5.5 Minimal', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-5.4': { displayName: 'GPT-5.4', input: 2.50, output: 15, cacheRead: 0.25, cacheWrite: 0 },
+    'gpt-5.4-mini': { displayName: 'GPT-5.4 Mini', input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0 },
+    'gpt-5.4-nano': { displayName: 'GPT-5.4 Nano', input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0 },
+    'gpt-5.2': { displayName: 'GPT-5.2', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5.2-codex': { displayName: 'GPT-5.2 Codex', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5.3-codex': { displayName: 'GPT-5.3 Codex', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5.1': { displayName: 'GPT-5.1', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gpt-5': { displayName: 'GPT-5', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gpt-5-mini': { displayName: 'GPT-5 Mini', input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 },
+    'gpt-5-nano': { displayName: 'GPT-5 Nano', input: 0.05, output: 0.40, cacheRead: 0.005, cacheWrite: 0 },
+
+    // === OpenAI Reasoning ===
+    'o3': { displayName: 'OpenAI o3', input: 2, output: 8, cacheRead: 0.50, cacheWrite: 0 },
+    'o3-pro': { displayName: 'OpenAI o3-pro', input: 20, output: 80, cacheRead: 0, cacheWrite: 0 },
+    'o3-mini': { displayName: 'OpenAI o3-mini', input: 0.55, output: 2.20, cacheRead: 0.55, cacheWrite: 0 },
+    'o4-mini': { displayName: 'OpenAI o4-mini', input: 1.10, output: 4.40, cacheRead: 0.275, cacheWrite: 0 },
+    'o1': { displayName: 'OpenAI o1', input: 15, output: 60, cacheRead: 7.50, cacheWrite: 0 },
+    'o1-mini': { displayName: 'OpenAI o1-mini', input: 0.55, output: 2.20, cacheRead: 0.55, cacheWrite: 0 },
+
+    // === GPT-4.1 ===
+    'gpt-4.1': { displayName: 'GPT-4.1', input: 2, output: 8, cacheRead: 0.50, cacheWrite: 0 },
+    'gpt-4.1-mini': { displayName: 'GPT-4.1 Mini', input: 0.40, output: 1.60, cacheRead: 0.10, cacheWrite: 0 },
+    'gpt-4.1-nano': { displayName: 'GPT-4.1 Nano', input: 0.10, output: 0.40, cacheRead: 0.025, cacheWrite: 0 },
+    'codex-mini': { displayName: 'Codex Mini', input: 0.75, output: 3, cacheRead: 0.025, cacheWrite: 0 },
+
+    // === Gemini Series ===
+    'gemini-3.1-pro-preview': { displayName: 'Gemini 3.1 Pro Preview', input: 2, output: 12, cacheRead: 0.20, cacheWrite: 0 },
+    'gemini-3.1-flash-lite-preview': { displayName: 'Gemini 3.1 Flash Lite Preview', input: 0.25, output: 1.50, cacheRead: 0.025, cacheWrite: 0 },
+    'gemini-3-pro-preview': { displayName: 'Gemini 3 Pro Preview', input: 2, output: 12, cacheRead: 0.20, cacheWrite: 0 },
+    'gemini-3-flash-preview': { displayName: 'Gemini 3 Flash Preview', input: 0.50, output: 3, cacheRead: 0.05, cacheWrite: 0 },
+    'gemini-2.5-pro': { displayName: 'Gemini 2.5 Pro', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gemini-2.5-flash': { displayName: 'Gemini 2.5 Flash', input: 0.30, output: 2.50, cacheRead: 0.03, cacheWrite: 0 },
+    'gemini-2.5-flash-lite': { displayName: 'Gemini 2.5 Flash Lite', input: 0.10, output: 0.40, cacheRead: 0.01, cacheWrite: 0 },
+    'gemini-2.0-flash': { displayName: 'Gemini 2.0 Flash', input: 0.10, output: 0.40, cacheRead: 0.025, cacheWrite: 0 },
+
+    // === Chinese Domestic Models ===
+    'doubao-seed-code': { displayName: 'Doubao Seed Code', input: 0.17, output: 1.11, cacheRead: 0.02, cacheWrite: 0 },
+    'doubao-seed-2-0-pro': { displayName: 'Doubao Seed 2.0 Pro', input: 0.47, output: 2.37, cacheRead: 0, cacheWrite: 0 },
+    'doubao-seed-2-0-code': { displayName: 'Doubao Seed 2.0 Code', input: 0.47, output: 2.37, cacheRead: 0, cacheWrite: 0 },
+    'doubao-seed-2-0-lite': { displayName: 'Doubao Seed 2.0 Lite', input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 },
+    'doubao-seed-2-0-mini': { displayName: 'Doubao Seed 2.0 Mini', input: 0.03, output: 0.31, cacheRead: 0, cacheWrite: 0 },
+    'deepseek-v3.2': { displayName: 'DeepSeek V3.2', input: 0.28, output: 0.42, cacheRead: 0.028, cacheWrite: 0 },
+    'deepseek-v3.1': { displayName: 'DeepSeek V3.1', input: 0.55, output: 1.67, cacheRead: 0.055, cacheWrite: 0 },
+    'deepseek-v3': { displayName: 'DeepSeek V3', input: 0.28, output: 1.11, cacheRead: 0.028, cacheWrite: 0 },
+    'deepseek-chat': { displayName: 'DeepSeek Chat', input: 0.27, output: 1.10, cacheRead: 0.07, cacheWrite: 0 },
+    'deepseek-reasoner': { displayName: 'DeepSeek Reasoner', input: 0.55, output: 2.19, cacheRead: 0.14, cacheWrite: 0 },
+    'deepseek-v4-flash': { displayName: 'DeepSeek V4 Flash', input: 0.14, output: 0.28, cacheRead: 0.028, cacheWrite: 0 },
+    'deepseek-v4-pro': { displayName: 'DeepSeek V4 Pro', input: 1.68, output: 3.36, cacheRead: 0.14, cacheWrite: 0 },
+    'kimi-k2-thinking': { displayName: 'Kimi K2 Thinking', input: 0.55, output: 2.20, cacheRead: 0.10, cacheWrite: 0 },
+    'kimi-k2-0905': { displayName: 'Kimi K2', input: 0.55, output: 2.20, cacheRead: 0.10, cacheWrite: 0 },
+    'kimi-k2-turbo': { displayName: 'Kimi K2 Turbo', input: 1.11, output: 8.06, cacheRead: 0.14, cacheWrite: 0 },
+    'kimi-k2.5': { displayName: 'Kimi K2.5', input: 0.60, output: 2.50, cacheRead: 0.10, cacheWrite: 0 },
+    'kimi-k2.6': { displayName: 'Kimi K2.6', input: 0.95, output: 4.00, cacheRead: 0.16, cacheWrite: 0 },
+    'minimax-m2.1': { displayName: 'MiniMax M2.1', input: 0.27, output: 0.95, cacheRead: 0.03, cacheWrite: 0 },
+    'minimax-m2.1-lightning': { displayName: 'MiniMax M2.1 Lightning', input: 0.27, output: 2.33, cacheRead: 0.03, cacheWrite: 0 },
+    'minimax-m2': { displayName: 'MiniMax M2', input: 0.27, output: 0.95, cacheRead: 0.03, cacheWrite: 0 },
+    'minimax-m2.5': { displayName: 'MiniMax M2.5', input: 0.12, output: 0.95, cacheRead: 0.03, cacheWrite: 0 },
+    'minimax-m2.5-lightning': { displayName: 'MiniMax M2.5 Lightning', input: 0.30, output: 2.40, cacheRead: 0.03, cacheWrite: 0 },
+    'minimax-m2.7': { displayName: 'MiniMax M2.7', input: 0.30, output: 1.20, cacheRead: 0.06, cacheWrite: 0.375 },
+    'minimax-m2.7-highspeed': { displayName: 'MiniMax M2.7 Highspeed', input: 0.60, output: 2.40, cacheRead: 0.06, cacheWrite: 0.375 },
+    'glm-4.7': { displayName: 'GLM-4.7', input: 0.39, output: 1.75, cacheRead: 0.04, cacheWrite: 0 },
+    'glm-4.6': { displayName: 'GLM-4.6', input: 0.28, output: 1.11, cacheRead: 0.03, cacheWrite: 0 },
+    'glm-5': { displayName: 'GLM-5', input: 0.72, output: 2.30, cacheRead: 0, cacheWrite: 0 },
+    'glm-5.1': { displayName: 'GLM-5.1', input: 0.95, output: 3.15, cacheRead: 0, cacheWrite: 0 },
+    'mimo-v2-flash': { displayName: 'MiMo V2 Flash', input: 0.09, output: 0.29, cacheRead: 0.009, cacheWrite: 0 },
+    'mimo-v2-pro': { displayName: 'MiMo V2 Pro', input: 1, output: 3, cacheRead: 0, cacheWrite: 0 },
+    'qwen3.6-plus': { displayName: 'Qwen3.6 Plus', input: 0.325, output: 1.95, cacheRead: 0, cacheWrite: 0 },
+    'qwen3.5-plus': { displayName: 'Qwen3.5 Plus', input: 0.26, output: 1.56, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-max': { displayName: 'Qwen3 Max', input: 0.78, output: 3.90, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-235b-a22b': { displayName: 'Qwen3 235B-A22B', input: 0.70, output: 8.40, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-coder-plus': { displayName: 'Qwen3 Coder Plus', input: 0.65, output: 3.25, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-coder-flash': { displayName: 'Qwen3 Coder Flash', input: 0.195, output: 0.975, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-coder-next': { displayName: 'Qwen3 Coder Next', input: 0.12, output: 0.75, cacheRead: 0, cacheWrite: 0 },
+    'qwq-plus': { displayName: 'QwQ Plus', input: 0.80, output: 2.40, cacheRead: 0, cacheWrite: 0 },
+    'qwq-32b': { displayName: 'QwQ 32B', input: 0.20, output: 0.60, cacheRead: 0, cacheWrite: 0 },
+    'qwen3-32b': { displayName: 'Qwen3 32B', input: 0.16, output: 0.64, cacheRead: 0, cacheWrite: 0 },
+
+    // === Grok Series ===
+    'grok-4.20-0309-reasoning': { displayName: 'Grok 4.20 Reasoning', input: 2, output: 6, cacheRead: 0.20, cacheWrite: 0 },
+    'grok-4.20-0309-non-reasoning': { displayName: 'Grok 4.20', input: 2, output: 6, cacheRead: 0.20, cacheWrite: 0 },
+    'grok-4-1-fast-reasoning': { displayName: 'Grok 4.1 Fast Reasoning', input: 0.20, output: 0.50, cacheRead: 0.05, cacheWrite: 0 },
+    'grok-4-1-fast-non-reasoning': { displayName: 'Grok 4.1 Fast', input: 0.20, output: 0.50, cacheRead: 0.05, cacheWrite: 0 },
+    'grok-4': { displayName: 'Grok 4', input: 3, output: 15, cacheRead: 0.75, cacheWrite: 0 },
+    'grok-code-fast-1': { displayName: 'Grok Code Fast', input: 0.20, output: 1.50, cacheRead: 0.02, cacheWrite: 0 },
+    'grok-3': { displayName: 'Grok 3', input: 3, output: 15, cacheRead: 0.75, cacheWrite: 0 },
+    'grok-3-mini': { displayName: 'Grok 3 Mini', input: 0.25, output: 0.50, cacheRead: 0.075, cacheWrite: 0 },
+
+    // === StepFun ===
+    'step-3.5-flash': { displayName: 'Step 3.5 Flash', input: 0.10, output: 0.30, cacheRead: 0.02, cacheWrite: 0 },
+
+    // === Mistral / Devstral ===
+    'codestral-2508': { displayName: 'Codestral', input: 0.30, output: 0.90, cacheRead: 0.03, cacheWrite: 0 },
+    'devstral-small-1.1': { displayName: 'Devstral Small 1.1', input: 0.07, output: 0.28, cacheRead: 0.01, cacheWrite: 0 },
+    'devstral-2-2512': { displayName: 'Devstral 2', input: 0.40, output: 0.90, cacheRead: 0.04, cacheWrite: 0 },
+    'devstral-medium': { displayName: 'Devstral Medium', input: 0.40, output: 2, cacheRead: 0.04, cacheWrite: 0 },
+    'mistral-large-3-2512': { displayName: 'Mistral Large 3', input: 0.50, output: 1.50, cacheRead: 0.05, cacheWrite: 0 },
+    'mistral-medium-3.1': { displayName: 'Mistral Medium 3.1', input: 0.40, output: 2, cacheRead: 0.04, cacheWrite: 0 },
+    'mistral-small-3.2-24b': { displayName: 'Mistral Small 3.2', input: 0.075, output: 0.20, cacheRead: 0.01, cacheWrite: 0 },
+    'magistral-medium': { displayName: 'Magistral Medium', input: 2, output: 5, cacheRead: 0, cacheWrite: 0 },
+
+    // === Cohere ===
+    'command-a': { displayName: 'Cohere Command A', input: 2.50, output: 10, cacheRead: 0, cacheWrite: 0 },
+    'command-r-plus': { displayName: 'Cohere Command R+', input: 2.50, output: 10, cacheRead: 0, cacheWrite: 0 },
+    'command-r': { displayName: 'Cohere Command R', input: 0.15, output: 0.60, cacheRead: 0, cacheWrite: 0 },
+};
+
+export const CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini']);
+
+export const SUPPORTED_AGENTS = [
+    { id: 'claude', name: 'Claude Code' },
+    { id: 'codex', name: 'Codex (OpenAI)' },
+    { id: 'gemini', name: 'Gemini CLI' },
+    { id: 'opencode', name: 'OpenCode' },
+    { id: 'amp', name: 'Amp' },
+    { id: 'codebuff', name: 'Codebuff' },
+    { id: 'hermes', name: 'Hermes Agent' },
+    { id: 'pi', name: 'pi-agent' },
+    { id: 'goose', name: 'Goose' },
+    { id: 'openclaw', name: 'OpenClaw' },
+    { id: 'kilo', name: 'Kilo' },
+    { id: 'kimi', name: 'Kimi' },
+    { id: 'qwen', name: 'Qwen' },
+    { id: 'copilot', name: 'GitHub Copilot CLI' },
+];
+
+export const AGENT_APP_TYPE_MAP = {
+    claude: 'claude',
+    codex: 'codex',
+    gemini: 'gemini',
+    opencode: 'opencode',
+    amp: 'amp',
+    codebuff: 'codebuff',
+    hermes: 'hermes',
+    pi: 'pi',
+    goose: 'goose',
+    openclaw: 'openclaw',
+    kilo: 'kilo',
+    kimi: 'kimi',
+    qwen: 'qwen',
+    copilot: 'copilot',
+};

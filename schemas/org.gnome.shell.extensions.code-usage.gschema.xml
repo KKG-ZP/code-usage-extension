@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="code-usage">
+  <schema id="org.gnome.shell.extensions.code-usage" path="/org/gnome/shell/extensions/code-usage/">
+    <key name="refresh-interval" type="i">
+      <default>300</default>
+      <summary>刷新间隔（秒）</summary>
+      <description>自动刷新使用统计数据的时间间隔，单位为秒</description>
+    </key>
+    <key name="display-mode" type="s">
+      <default>'tokens'</default>
+      <summary>面板显示模式</summary>
+      <description>面板显示内容：'tokens' 显示 Token 数，'cost' 显示费用，'both' 显示两者</description>
+    </key>
+    <key name="show-icon" type="b">
+      <default>true</default>
+      <summary>显示面板图标</summary>
+      <description>是否在顶部面板显示图标</description>
+    </key>
+    <key name="selected-agents" type="as">
+      <default>['claude']</default>
+      <summary>选中的代理列表</summary>
+      <description>要监控的编码代理工具列表</description>
+    </key>
+    <key name="date-range-preset" type="s">
+      <default>'today'</default>
+      <summary>日期范围预设</summary>
+      <description>日期范围预设：today、7d、30d、custom</description>
+    </key>
+    <key name="custom-date-since" type="s">
+      <default>''</default>
+      <summary>自定义起始日期</summary>
+      <description>自定义日期范围的起始日期，格式 YYYY-MM-DD</description>
+    </key>
+    <key name="custom-date-until" type="s">
+      <default>''</default>
+      <summary>自定义截止日期</summary>
+      <description>自定义日期范围的截止日期</description>
+    </key>
+    <key name="cost-multiplier" type="d">
+      <default>1.0</default>
+      <summary>成本倍率</summary>
+      <description>应用于总成本的倍率，用于货币换算或加价</description>
+    </key>
+    <key name="price-overrides" type="s">
+      <default>'{}'</default>
+      <summary>自定义定价覆盖</summary>
+      <description>用户自定义的模型定价，JSON 格式。优先于内置默认定价</description>
+    </key>
+    <key name="cost-currency" type="s">
+      <default>'CNY'</default>
+      <summary>货币显示</summary>
+      <description>费用显示的货币：CNY 或 USD</description>
+    </key>
+    <key name="cny-exchange-rate" type="d">
+      <default>7.25</default>
+      <summary>CNY 汇率</summary>
+      <description>1 USD 等于多少 CNY，用于费用换算</description>
+    </key>
+    <key name="sort-order" type="s">
+      <default>'desc'</default>
+      <summary>日期排序</summary>
+      <description>日期排序顺序：desc（降序）或 asc（升序）</description>
+    </key>
+    <key name="token-display-format" type="s">
+      <default>'auto'</default>
+      <summary>Token 显示格式</summary>
+      <description>Token 数量显示格式：auto（自动缩写）、K、M、raw（原始数值）</description>
+    </key>
+    <key name="debug-mode" type="b">
+      <default>false</default>
+      <summary>调试模式</summary>
+      <description>启用调试日志输出</description>
+    </key>
+  </schema>
+</schemalist>
