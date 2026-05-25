@@ -1,6 +1,59 @@
 // Parsers for all supported agent log formats
 // Each parser returns: { date, model, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, costUSD }
 
+import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
+
+let _sqlite3Path = null;
+let _sqlite3Checked = false;
+
+function _findSqlite3() {
+    if (_sqlite3Checked) return _sqlite3Path;
+    _sqlite3Checked = true;
+
+    const homeDir = GLib.get_home_dir();
+    const candidates = new Set();
+
+    const systemPaths = [
+        '/usr/bin/sqlite3',
+        '/usr/local/bin/sqlite3',
+        '/opt/homebrew/bin/sqlite3',
+        '/home/linuxbrew/.linuxbrew/bin/sqlite3',
+    ];
+    for (const p of systemPaths) candidates.add(p);
+
+    const pathEnv = GLib.getenv('PATH') || '';
+    for (const p of pathEnv.split(':')) {
+        if (p && p.trim()) {
+            candidates.add(GLib.build_filenamev([p.trim(), 'sqlite3']));
+        }
+    }
+
+    const homeBinPaths = [
+        GLib.build_filenamev([homeDir, '.local', 'bin', 'sqlite3']),
+        GLib.build_filenamev([homeDir, 'bin', 'sqlite3']),
+    ];
+    for (const p of homeBinPaths) candidates.add(p);
+
+    const homeSubdirs = [
+        'miniconda3', 'anaconda3', 'miniforge3', 'mambaforge',
+        'APP/miniconda3', 'APP/anaconda3', 'APP/miniforge3',
+    ];
+    for (const sub of homeSubdirs) {
+        candidates.add(GLib.build_filenamev([homeDir, sub, 'bin', 'sqlite3']));
+    }
+
+    for (const candidate of candidates) {
+        const file = Gio.File.new_for_path(candidate);
+        if (file.query_exists(null)) {
+            _sqlite3Path = candidate;
+            break;
+        }
+    }
+
+    return _sqlite3Path;
+}
+
 // ═══════════════════════════════════════
 // Claude Code
 // ═══════════════════════════════════════
@@ -401,6 +454,12 @@ export function parseCodeBuffFile(content, filePath, agent) {
 export async function parseSQLiteAgent(agent, dbPath, config) {
     return new Promise((resolve) => {
         try {
+            const sqlite3 = _findSqlite3();
+            if (!sqlite3) {
+                resolve([]);
+                return;
+            }
+
             let sql;
 
             if (agent === 'opencode' || agent === 'kilo') {
@@ -414,7 +473,7 @@ export async function parseSQLiteAgent(agent, dbPath, config) {
                 return;
             }
 
-            const argv = ['sqlite3', '-json', dbPath, sql];
+            const argv = [sqlite3, '-json', dbPath, sql];
 
             const subprocess = Gio.Subprocess.new(
                 argv,
