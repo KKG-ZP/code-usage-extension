@@ -3,15 +3,12 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import { CodeUsageIndicator, setGettext } from './modules/panelIndicator.js';
 
 export default class CodeUsageExtension extends Extension {
-    enable() {
-        setGettext(_);
-        this._settings = this.getSettings();
-        this._indicator = new CodeUsageIndicator(
-            this.path,
-            this._settings,
-            () => this.openPreferences()
-        );
+    _applyPosition() {
         const pos = this._settings.get_string('panel-position');
+        const parent = this._indicator.get_parent();
+        if (parent) {
+            parent.remove_child(this._indicator);
+        }
         let box;
         if (pos.includes('left')) {
             box = Main.panel._leftBox;
@@ -27,7 +24,25 @@ export default class CodeUsageExtension extends Extension {
         }
     }
 
+    enable() {
+        setGettext(_);
+        this._settings = this.getSettings();
+        this._indicator = new CodeUsageIndicator(
+            this.path,
+            this._settings,
+            () => this.openPreferences()
+        );
+        this._applyPosition();
+        this._posChangedId = this._settings.connect('changed::panel-position', () => {
+            this._applyPosition();
+        });
+    }
+
     disable() {
+        if (this._posChangedId) {
+            this._settings.disconnect(this._posChangedId);
+            this._posChangedId = null;
+        }
         this._indicator?.destroy();
         this._indicator = null;
         this._settings = null;
