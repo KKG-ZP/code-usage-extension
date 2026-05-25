@@ -12,11 +12,19 @@ export default class CodeUsageExtension extends Extension {
             () => this.openPreferences()
         );
         const pos = this._settings.get_string('panel-position');
-        const box = pos.includes('left') ? Main.panel._leftBox
-            : pos === 'center' ? Main.panel._centerBox
-            : Main.panel._rightBox;
-        const index = pos.startsWith('far-') ? 0 : undefined;
-        Main.panel.addToStatusArea(this.uuid, this._indicator, index, box);
+        let box;
+        if (pos.includes('left')) {
+            box = Main.panel._leftBox;
+        } else if (pos === 'center') {
+            box = Main.panel._centerBox;
+        } else {
+            box = Main.panel._rightBox;
+        }
+        if (pos.startsWith('far-')) {
+            box.insert_child_at_index(this._indicator, 0);
+        } else {
+            box.add_child(this._indicator);
+        }
     }
 
     disable() {
