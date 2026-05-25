@@ -90,25 +90,85 @@
 }
 
 .cu-model-list {
+    spacing: 6px;
+}
+
+.cu-model-card {
+    background-color: rgba(0, 0, 0, 0.04);
+    border-radius: 8px;
+    padding: 8px;
     spacing: 4px;
 }
 
-.cu-model-row {
+.cu-model-header-row {
     spacing: 6px;
-    padding: 2px 0;
+}
+
+.cu-model-agent-tag {
+    font-size: 10px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: #3584e4;
+    border-radius: 4px;
+    padding: 1px 5px;
 }
 
 .cu-model-name {
     font-size: 12px;
     color: #2a2a2a;
-    width: 110px;
+    x-expand: true;
 }
 
 .cu-model-cost {
     font-size: 12px;
     font-weight: bold;
     color: #1a1a1a;
-    min-width: 55px;
+}
+
+.cu-model-progress-bg {
+    background-color: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+    height: 6px;
+}
+
+.cu-model-progress-bar {
+    height: 6px;
+    border-radius: 4px;
+    background-color: #4caf50;
+}
+
+.cu-model-detail-row {
+    spacing: 4px;
+}
+
+.cu-token-separator {
+    font-size: 10px;
+    color: #999999;
+}
+
+.cu-token-input {
+    font-size: 10px;
+    color: #42a5f5;
+}
+
+.cu-token-output {
+    font-size: 10px;
+    color: #4caf50;
+}
+
+.cu-token-cache-read {
+    font-size: 10px;
+    color: #fb8c00;
+}
+
+.cu-token-cache-create {
+    font-size: 10px;
+    color: #ab47bc;
+}
+
+.cu-token-requests {
+    font-size: 10px;
+    color: #777777;
 }
 
 .cu-empty-label {

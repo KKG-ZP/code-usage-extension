@@ -147,6 +147,23 @@ export const SUPPORTED_AGENTS = [
     { id: 'copilot', name: 'GitHub Copilot CLI' },
 ];
 
+export const AGENT_DISPLAY_NAMES = {
+    claude: 'Claude Code',
+    codex: 'Codex',
+    gemini: 'Gemini CLI',
+    opencode: 'OpenCode',
+    amp: 'Amp',
+    codebuff: 'Codebuff',
+    hermes: 'Hermes Agent',
+    pi: 'pi-agent',
+    goose: 'Goose',
+    openclaw: 'OpenClaw',
+    kilo: 'Kilo',
+    kimi: 'Kimi',
+    qwen: 'Qwen',
+    copilot: 'Copilot CLI',
+};
+
 export const AGENT_APP_TYPE_MAP = {
     claude: 'claude',
     codex: 'codex',

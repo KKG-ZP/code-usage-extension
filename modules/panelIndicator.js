@@ -450,36 +450,79 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         for (let i = 0; i < Math.min(models.length, maxModels); i++) {
             const ms = models[i];
-            const row = new St.BoxLayout({
-                style_class: 'cu-model-row',
+            const card = new St.BoxLayout({
+                style_class: 'cu-model-card',
+                vertical: true,
+            });
+
+            const headerRow = new St.BoxLayout({
+                style_class: 'cu-model-header-row',
                 vertical: false,
             });
+
+            const agentTag = new St.Label({
+                text: ms.agentName,
+                style_class: 'cu-model-agent-tag',
+            });
+            headerRow.add_child(agentTag);
 
             const name = new St.Label({
                 text: ms.displayName || ms.model,
                 style_class: 'cu-model-name',
                 x_expand: true,
             });
-            row.add_child(name);
-
-            const progressBg = new St.Widget({
-                style_class: 'cu-progress-bg',
-            });
-            const progressBar = new St.Widget({
-                style_class: 'cu-progress-bar',
-            });
-            const barWidth = Math.round(ms.percentage * 100);
-            progressBar.set_width(Math.max(barWidth, 2));
-            progressBg.add_child(progressBar);
-            row.add_child(progressBg);
+            headerRow.add_child(name);
 
             const cost = new St.Label({
                 text: ms.totalCostFormatted,
                 style_class: 'cu-model-cost',
             });
-            row.add_child(cost);
+            headerRow.add_child(cost);
 
-            this._modelListContainer.add_child(row);
+            card.add_child(headerRow);
+
+            const progressBg = new St.Widget({
+                style_class: 'cu-model-progress-bg',
+                x_expand: true,
+            });
+            const progressBar = new St.Widget({
+                style_class: 'cu-model-progress-bar',
+            });
+            const barWidth = Math.round(ms.percentage * 200);
+            progressBar.set_width(Math.max(barWidth, 4));
+            progressBg.add_child(progressBar);
+            card.add_child(progressBg);
+
+            const detailRow = new St.BoxLayout({
+                style_class: 'cu-model-detail-row',
+                vertical: false,
+            });
+
+            const tokenLabels = [
+                { text: `${_('输入')} ${ms.inputTokensFormatted}`, style: 'cu-token-input' },
+                { text: `${_('输出')} ${ms.outputTokensFormatted}`, style: 'cu-token-output' },
+                { text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`, style: 'cu-token-cache-read' },
+                { text: `${_('缓存写')} ${ms.cacheCreationTokensFormatted}`, style: 'cu-token-cache-create' },
+                { text: `${_('请求数')} ${ms.requestCount}`, style: 'cu-token-requests' },
+            ];
+
+            for (let j = 0; j < tokenLabels.length; j++) {
+                if (j > 0) {
+                    const sep = new St.Label({
+                        text: '·',
+                        style_class: 'cu-token-separator',
+                    });
+                    detailRow.add_child(sep);
+                }
+                const lbl = new St.Label({
+                    text: tokenLabels[j].text,
+                    style_class: tokenLabels[j].style,
+                });
+                detailRow.add_child(lbl);
+            }
+
+            card.add_child(detailRow);
+            this._modelListContainer.add_child(card);
         }
 
         if (models.length === 0) {

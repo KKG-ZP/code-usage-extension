@@ -1,6 +1,6 @@
 import { CostCalculator, formatCost, formatTokens, calculateCacheHitRate } from './costCalculator.js';
 import { getPricingForModel } from './pricingResolver.js';
-import { AGENT_APP_TYPE_MAP } from './defaultPricing.js';
+import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
 
 export class DataProcessor {
     constructor(settings) {
@@ -66,11 +66,14 @@ export class DataProcessor {
 
             const modelKey = entry.model || 'unknown';
             const displayName = pricing ? (pricing.displayName || modelKey) : modelKey;
+            const compositeKey = `${agent}:${modelKey}`;
 
-            if (!modelStats[modelKey]) {
-                modelStats[modelKey] = {
+            if (!modelStats[compositeKey]) {
+                modelStats[compositeKey] = {
                     model: modelKey,
                     displayName,
+                    agent,
+                    agentName: AGENT_DISPLAY_NAMES[agent] || agent,
                     inputTokens: 0,
                     outputTokens: 0,
                     cacheReadTokens: 0,
@@ -79,12 +82,12 @@ export class DataProcessor {
                     requestCount: 0,
                 };
             }
-            modelStats[modelKey].inputTokens += usage.inputTokens;
-            modelStats[modelKey].outputTokens += usage.outputTokens;
-            modelStats[modelKey].cacheReadTokens += usage.cacheReadTokens;
-            modelStats[modelKey].cacheCreationTokens += usage.cacheCreationTokens;
-            modelStats[modelKey].totalCost += entryCost;
-            modelStats[modelKey].requestCount += 1;
+            modelStats[compositeKey].inputTokens += usage.inputTokens;
+            modelStats[compositeKey].outputTokens += usage.outputTokens;
+            modelStats[compositeKey].cacheReadTokens += usage.cacheReadTokens;
+            modelStats[compositeKey].cacheCreationTokens += usage.cacheCreationTokens;
+            modelStats[compositeKey].totalCost += entryCost;
+            modelStats[compositeKey].requestCount += 1;
 
             if (!dailyMap[entry.date]) {
                 dailyMap[entry.date] = {
@@ -136,6 +139,10 @@ export class DataProcessor {
                 totalTokens: m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens,
                 percentage: maxModelCost > 0 ? m.totalCost / maxModelCost : 0,
                 totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
+                inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
+                outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
+                cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
+                cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
             })),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
