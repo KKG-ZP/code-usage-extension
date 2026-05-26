@@ -687,18 +687,24 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const inputLbl = _makeEllipsizedLabel({
                 text: `${_('输入')} ${ms.inputTokensFormatted}`,
                 style_class: 'cu-token-input',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.START,
             });
             row1Col1.add_child(inputLbl);
 
             const outputLbl = _makeEllipsizedLabel({
                 text: `${_('输出')} ${ms.outputTokensFormatted}`,
                 style_class: 'cu-token-output',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.CENTER,
             });
             row1Col2.add_child(outputLbl);
 
             const cacheReadLbl = _makeEllipsizedLabel({
                 text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`,
                 style_class: 'cu-token-cache-read',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.END,
             });
             row1Col3.add_child(cacheReadLbl);
 
@@ -720,18 +726,24 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const hitRateLbl = _makeEllipsizedLabel({
                 text: `${_('命中')} ${ms.cacheHitRateFormatted}`,
                 style_class: 'cu-token-cache-hit',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.START,
             });
             row2Col1.add_child(hitRateLbl);
 
             const totalLbl = _makeEllipsizedLabel({
                 text: `${_('总量')} ${ms.totalTokensFormatted}`,
                 style_class: 'cu-token-total',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.CENTER,
             });
             row2Col2.add_child(totalLbl);
 
             const requestsLbl = _makeEllipsizedLabel({
                 text: `${_('请求数')} ${ms.requestCount}`,
                 style_class: 'cu-token-requests',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.END,
             });
             row2Col3.add_child(requestsLbl);
 

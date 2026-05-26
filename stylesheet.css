@@ -245,7 +245,7 @@
 .cu-token-output {
     font-size: 10px;
     font-weight: 700;
-    color: #34C759;
+    color: #15803D;
 }
 
 .cu-token-cache-read {
@@ -257,19 +257,19 @@
 .cu-token-requests {
     font-size: 10px;
     font-weight: 700;
-    color: #AF52DE;
+    color: #6D28D9;
 }
 
 .cu-token-cache-hit {
     font-size: 10px;
     font-weight: 700;
-    color: #5B8DEF;
+    color: #1D4ED8;
 }
 
 .cu-token-total {
     font-size: 10px;
     font-weight: 700;
-    color: #8E8E93;
+    color: #EC4899;
 }
 
 .cu-empty-label {
