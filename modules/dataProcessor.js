@@ -1,8 +1,16 @@
-import { CostCalculator, formatCost, formatTokens, calculateCacheHitRate } from './costCalculator.js';
-import { getPricingForModel } from './pricingResolver.js';
-import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
+const Me = imports.misc.extensionUtils.getCurrentExtension();
+const CostModule = Me.imports.modules.costCalculator;
+const PricingResolver = Me.imports.modules.pricingResolver;
+const DefaultPricing = Me.imports.modules.defaultPricing;
+const CostCalculator = CostModule.CostCalculator;
+const formatCost = CostModule.formatCost;
+const formatTokens = CostModule.formatTokens;
+const calculateCacheHitRate = CostModule.calculateCacheHitRate;
+const getPricingForModel = PricingResolver.getPricingForModel;
+const AGENT_APP_TYPE_MAP = DefaultPricing.AGENT_APP_TYPE_MAP;
+const AGENT_DISPLAY_NAMES = DefaultPricing.AGENT_DISPLAY_NAMES;
 
-export class DataProcessor {
+var DataProcessor = class DataProcessor {
     constructor(settings) {
         this._settings = settings;
     }
@@ -134,19 +142,20 @@ export class DataProcessor {
             cacheHitRate,
             cacheHitRateFormatted: `${(cacheHitRate * 100).toFixed(1)}%`,
             daily: dailyArr,
-            modelStats: modelList.map(m => ({
-                ...m,
-                totalTokens: m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens,
-                percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
-                totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
-                inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
-                outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
-                cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
-                cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
-                cacheHitRate: calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens),
-                cacheHitRateFormatted: `${(calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens) * 100).toFixed(1)}%`,
-                totalTokensFormatted: formatTokens(m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens, tokenFormat),
-            })),
+            modelStats: modelList.map(m => {
+                const row = Object.assign({}, m);
+                row.totalTokens = m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+                row.percentage = totalCost > 0 ? m.totalCost / totalCost : 0;
+                row.totalCostFormatted = formatCost(m.totalCost, currency, exchangeRate);
+                row.inputTokensFormatted = formatTokens(m.inputTokens, tokenFormat);
+                row.outputTokensFormatted = formatTokens(m.outputTokens, tokenFormat);
+                row.cacheReadTokensFormatted = formatTokens(m.cacheReadTokens, tokenFormat);
+                row.cacheCreationTokensFormatted = formatTokens(m.cacheCreationTokens, tokenFormat);
+                row.cacheHitRate = calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens);
+                row.cacheHitRateFormatted = `${(row.cacheHitRate * 100).toFixed(1)}%`;
+                row.totalTokensFormatted = formatTokens(row.totalTokens, tokenFormat);
+                return row;
+            }),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
             exchangeRate,

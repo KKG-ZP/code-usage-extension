@@ -1,7 +1,7 @@
 // Ported from cc-switch src-tauri/src/database/schema.rs
 // All prices are USD per 1M tokens
 
-export const DEFAULT_PRICING = {
+var DEFAULT_PRICING = {
     // === Claude Models ===
     'claude-opus-4-7': { displayName: 'Claude Opus 4.7', input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
     'claude-opus-4-6-20260206': { displayName: 'Claude Opus 4.6', input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
@@ -128,9 +128,9 @@ export const DEFAULT_PRICING = {
     'command-r': { displayName: 'Cohere Command R', input: 0.15, output: 0.60, cacheRead: 0, cacheWrite: 0 },
 };
 
-export const CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini']);
+var CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini']);
 
-export const SUPPORTED_AGENTS = [
+var SUPPORTED_AGENTS = [
     { id: 'claude', name: 'Claude Code' },
     { id: 'codex', name: 'Codex (OpenAI)' },
     { id: 'gemini', name: 'Gemini CLI' },
@@ -147,7 +147,7 @@ export const SUPPORTED_AGENTS = [
     { id: 'copilot', name: 'GitHub Copilot CLI' },
 ];
 
-export const AGENT_DISPLAY_NAMES = {
+var AGENT_DISPLAY_NAMES = {
     claude: 'Claude Code',
     codex: 'Codex',
     gemini: 'Gemini CLI',
@@ -164,7 +164,7 @@ export const AGENT_DISPLAY_NAMES = {
     copilot: 'Copilot CLI',
 };
 
-export const AGENT_BRAND_COLORS = {
+var AGENT_BRAND_COLORS = {
     claude: '#D97757',
     codex: '#10A37F',
     gemini: '#4285F4',
@@ -181,11 +181,11 @@ export const AGENT_BRAND_COLORS = {
     copilot: '#8534F3',
 };
 
-export const AGENT_BRAND_TEXT_COLORS = {
+var AGENT_BRAND_TEXT_COLORS = {
     opencode: '#ebebeb',
 };
 
-export const AGENT_APP_TYPE_MAP = {
+var AGENT_APP_TYPE_MAP = {
     claude: 'claude',
     codex: 'codex',
     gemini: 'gemini',

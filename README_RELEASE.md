@@ -6,11 +6,11 @@
 
 ## 系统要求
 
-- GNOME Shell 45-49
+- GNOME Shell 3.36、3.38、40-44
 - `glib-compile-schemas`（通常随 GNOME/GLib 安装）
 - 可选：`sqlite3`，仅 OpenCode、Goose、Hermes、Kilo 等 SQLite 数据源需要
 
-这是 modern 发布包，仅适用于 GNOME Shell 45-49。GNOME Shell 3.36、3.38、40-44 请使用 `legacy/gnome-3.36-44` 分支生成的 legacy 发布包。
+这是 legacy 发布包，仅适用于 GNOME Shell 3.36、3.38、40-44。GNOME Shell 45-49 请使用 `main` 分支生成的 modern 发布包。
 
 ## 安装步骤
 

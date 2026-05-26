@@ -1,8 +1,8 @@
 // Parsers for all supported agent log formats
 // Each parser returns: { date, model, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, costUSD }
 
-import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
 
 let _sqlite3Path = null;
 let _sqlite3Checked = false;
@@ -57,7 +57,7 @@ function _findSqlite3() {
 // ═══════════════════════════════════════
 // Claude Code
 // ═══════════════════════════════════════
-export function parseClaudeEntry(line, filePath) {
+function parseClaudeEntry(line, filePath) {
     try {
         const raw = JSON.parse(line);
         const entry = raw;
@@ -72,7 +72,7 @@ export function parseClaudeEntry(line, filePath) {
         }
 
         return null;
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -86,7 +86,7 @@ function _extractClaudeUsage(raw, costUSD) {
     if (!inputTokens && !outputTokens) return null;
 
     const model = raw.message ? (raw.message.model || raw.model) : raw.model;
-    const timestamp = raw.timestamp || raw.message?.timestamp;
+    const timestamp = raw.timestamp || (raw.message && raw.message.timestamp);
 
     return {
         date: _extractDate(timestamp),
@@ -101,7 +101,7 @@ function _extractClaudeUsage(raw, costUSD) {
 
 const _codexSessionModels = new Map();
 
-export function parseCodexLine(line, filePath) {
+function parseCodexLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
 
@@ -109,8 +109,8 @@ export function parseCodexLine(line, filePath) {
             return null;
         }
 
-        if (raw.type === 'turn_context' || raw.payload?.type === 'turn_context') {
-            const model = raw.payload?.model;
+        if (raw.type === 'turn_context' || (raw.payload && raw.payload.type) === 'turn_context') {
+            const model = (raw.payload && raw.payload.model);
             if (model) _codexSessionModels.set(filePath, model);
             return null;
         }
@@ -119,7 +119,7 @@ export function parseCodexLine(line, filePath) {
         let model = null;
         let timestamp = null;
 
-        if (raw.type === 'event_msg' && raw.payload?.type === 'token_count') {
+        if (raw.type === 'event_msg' && (raw.payload && raw.payload.type) === 'token_count') {
             const info = raw.payload.info;
             if (!info) return null;
             usage = info.last_token_usage || info.total_token_usage;
@@ -150,7 +150,7 @@ export function parseCodexLine(line, filePath) {
             cacheReadTokens: _pick(usage, ['cached_input_tokens', 'cache_read_input_tokens', 'cached_tokens']) || 0,
             costUSD: null,
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -158,7 +158,7 @@ export function parseCodexLine(line, filePath) {
 // ═══════════════════════════════════════
 // Gemini
 // ═══════════════════════════════════════
-export function parseGeminiFile(content, filePath, agent) {
+function parseGeminiFile(content, filePath, agent) {
     const entries = [];
 
     try {
@@ -177,7 +177,7 @@ export function parseGeminiFile(content, filePath, agent) {
                 else entries.push(result);
             }
         }
-    } catch {
+    } catch (e) {
         // try JSONL
         for (const line of content.split('\n')) {
             const trimmed = line.trim();
@@ -185,7 +185,7 @@ export function parseGeminiFile(content, filePath, agent) {
             try {
                 const entry = _parseGeminiJSON(trimmed);
                 if (entry) entries.push(entry);
-            } catch { /* skip */ }
+            } catch (e) { /* skip */ }
         }
     }
 
@@ -196,14 +196,14 @@ function _parseGeminiJSON(line) {
     try {
         const raw = JSON.parse(line);
         return _parseGeminiJSONObj(raw);
-    } catch {
+    } catch (e) {
         return null;
     }
 }
 
 function _parseGeminiJSONObj(raw) {
     // Shape 3: stats-based
-    if (raw.stats?.models) {
+    if ((raw.stats && raw.stats.models)) {
         const entries = [];
         for (const [model, data] of Object.entries(raw.stats.models)) {
             const tokens = data.tokens || {};
@@ -259,12 +259,12 @@ function _parseGeminiJSONObj(raw) {
 // ═══════════════════════════════════════
 // Kimi
 // ═══════════════════════════════════════
-export function parseKimiLine(line, filePath) {
+function parseKimiLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
         if (!raw.message || raw.message.type !== 'StatusUpdate') return null;
         const payload = raw.message.payload;
-        if (!payload?.token_usage) return null;
+        if (!(payload && payload.token_usage)) return null;
 
         const tu = payload.token_usage;
         return {
@@ -276,7 +276,7 @@ export function parseKimiLine(line, filePath) {
             cacheReadTokens: tu.input_cache_read || 0,
             costUSD: null,
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -284,7 +284,7 @@ export function parseKimiLine(line, filePath) {
 // ═══════════════════════════════════════
 // OpenClaw
 // ═══════════════════════════════════════
-export function parseOpenClawLine(line, filePath) {
+function parseOpenClawLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
         if (raw.type === 'model_change' || raw.type === 'custom') return null;
@@ -293,19 +293,19 @@ export function parseOpenClawLine(line, filePath) {
         const msg = raw.message || raw;
         if (msg.role !== 'assistant') return null;
 
-        const usage = msg.usage || msg.message?.usage;
+        const usage = msg.usage || (msg.message && msg.message.usage);
         if (!usage) return null;
 
         return {
             date: _extractDate(raw.timestamp || msg.timestamp),
-            model: msg.modelId || msg.model || raw.data?.modelId || 'openclaw',
+            model: msg.modelId || msg.model || (raw.data && raw.data.modelId) || 'openclaw',
             inputTokens: _pick(usage, ['input', 'input_tokens', 'prompt_tokens']) || 0,
             outputTokens: _pick(usage, ['output', 'output_tokens', 'completion_tokens']) || 0,
             cacheCreationTokens: _pick(usage, ['cacheWrite', 'cache_write', 'cache_creation']) || 0,
             cacheReadTokens: _pick(usage, ['cacheRead', 'cache_read', 'cache_read_tokens']) || 0,
-            costUSD: usage.cost?.total ?? null,
+            costUSD: _firstDefined([usage.cost && usage.cost.total], null),
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -313,7 +313,7 @@ export function parseOpenClawLine(line, filePath) {
 // ═══════════════════════════════════════
 // PI Agent
 // ═══════════════════════════════════════
-export function parsePILine(line, filePath) {
+function parsePILine(line, filePath) {
     try {
         const raw = JSON.parse(line);
         if (!raw.message || raw.message.role !== 'assistant') return null;
@@ -327,9 +327,9 @@ export function parsePILine(line, filePath) {
             outputTokens: _pick(usage, ['output', 'output_tokens', 'completion_tokens']) || 0,
             cacheCreationTokens: _pick(usage, ['cacheWrite', 'cache_write', 'cache_creation']) || 0,
             cacheReadTokens: _pick(usage, ['cacheRead', 'cache_read', 'cache_read_tokens']) || 0,
-            costUSD: usage.cost?.total ?? null,
+            costUSD: _firstDefined([usage.cost && usage.cost.total], null),
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -337,7 +337,7 @@ export function parsePILine(line, filePath) {
 // ═══════════════════════════════════════
 // Qwen
 // ═══════════════════════════════════════
-export function parseQwenLine(line, filePath) {
+function parseQwenLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
         if (raw.type !== 'assistant') return null;
@@ -353,7 +353,7 @@ export function parseQwenLine(line, filePath) {
             cacheReadTokens: meta.cachedContentTokenCount || meta.cached_tokens || 0,
             costUSD: null,
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -361,7 +361,7 @@ export function parseQwenLine(line, filePath) {
 // ═══════════════════════════════════════
 // GitHub Copilot CLI
 // ═══════════════════════════════════════
-export function parseCopilotLine(line, filePath) {
+function parseCopilotLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
 
@@ -380,7 +380,7 @@ export function parseCopilotLine(line, filePath) {
             cacheReadTokens: attrs['gen_ai.usage.cache_read.input_tokens'] || attrs['gen_ai.usage.cache_read_tokens'] || 0,
             costUSD: null,
         };
-    } catch {
+    } catch (e) {
         return null;
     }
 }
@@ -388,7 +388,7 @@ export function parseCopilotLine(line, filePath) {
 // ═══════════════════════════════════════
 // Amp
 // ═══════════════════════════════════════
-export function parseAmpFile(content, filePath, agent) {
+function parseAmpFile(content, filePath, agent) {
     const entries = [];
     try {
         const raw = JSON.parse(content);
@@ -416,14 +416,14 @@ export function parseAmpFile(content, filePath, agent) {
                 costUSD: event.credits != null ? event.credits : null,
             });
         }
-    } catch { /* skip */ }
+    } catch (e) { /* skip */ }
     return entries;
 }
 
 // ═══════════════════════════════════════
 // CodeBuff
 // ═══════════════════════════════════════
-export function parseCodeBuffFile(content, filePath, agent) {
+function parseCodeBuffFile(content, filePath, agent) {
     const entries = [];
     try {
         const raw = JSON.parse(content);
@@ -433,12 +433,12 @@ export function parseCodeBuffFile(content, filePath, agent) {
             const role = msg.variant || msg.role;
             if (role !== 'ai' && role !== 'agent' && role !== 'assistant') continue;
 
-            const usage = msg.metadata?.usage || msg.metadata?.codebuff?.usage;
+            const usage = (msg.metadata && msg.metadata.usage) || (msg.metadata && msg.metadata.codebuff && msg.metadata.codebuff.usage);
             if (!usage) continue;
 
             entries.push({
                 date: _extractDate(msg.timestamp),
-                model: msg.metadata?.model || msg.metadata?.codebuff?.model || 'codebuff',
+                model: (msg.metadata && msg.metadata.model) || (msg.metadata && msg.metadata.codebuff && msg.metadata.codebuff.model) || 'codebuff',
                 inputTokens: _pick(usage, ['inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']) || 0,
                 outputTokens: _pick(usage, ['outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']) || 0,
                 cacheCreationTokens: _pick(usage, ['cacheCreationInputTokens', 'cache_creation_input_tokens', 'cacheCreationTokens', 'cache_creation_tokens']) || 0,
@@ -446,14 +446,14 @@ export function parseCodeBuffFile(content, filePath, agent) {
                 costUSD: msg.credits != null ? msg.credits : null,
             });
         }
-    } catch { /* skip */ }
+    } catch (e) { /* skip */ }
     return entries;
 }
 
 // ═══════════════════════════════════════
 // SQLite agents (OpenCode, Goose, Hermes, Kilo)
 // ═══════════════════════════════════════
-export async function parseSQLiteAgent(agent, dbPath, config) {
+async function parseSQLiteAgent(agent, dbPath, config) {
     return new Promise((resolve) => {
         try {
             const sqlite3 = _findSqlite3();
@@ -513,15 +513,15 @@ function _parseSQLiteRow(agent, row) {
             if (!data) return null;
             const tokens = data.tokens || {};
             return {
-                date: _extractDate(data.time?.created),
+                date: _extractDate((data.time && data.time.created)),
                 model: data.modelID || data.providerID || agent,
                 inputTokens: tokens.input || tokens.input_tokens || 0,
                 outputTokens: tokens.output || tokens.output_tokens || 0,
-                cacheCreationTokens: tokens.cache?.write || tokens.cache_write || 0,
-                cacheReadTokens: tokens.cache?.read || tokens.cache_read || 0,
+                cacheCreationTokens: (tokens.cache && tokens.cache.write) || tokens.cache_write || 0,
+                cacheReadTokens: (tokens.cache && tokens.cache.read) || tokens.cache_read || 0,
                 costUSD: data.cost != null ? data.cost : null,
             };
-        } catch {
+        } catch (e) {
             return null;
         }
     }
@@ -531,8 +531,8 @@ function _parseSQLiteRow(agent, row) {
         try {
             const config = typeof row.model_config_json === 'string'
                 ? JSON.parse(row.model_config_json) : row.model_config_json;
-            model = config?.model_name || model;
-        } catch { /* use default */ }
+            model = (config && config.model_name) || model;
+        } catch (e) { /* use default */ }
 
         return {
             date: _extractDate(row.created_at),
@@ -553,7 +553,7 @@ function _parseSQLiteRow(agent, row) {
             outputTokens: row.output_tokens || 0,
             cacheCreationTokens: row.cache_write_tokens || 0,
             cacheReadTokens: row.cache_read_tokens || 0,
-            costUSD: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
+            costUSD: _firstDefined([row.actual_cost_usd, row.estimated_cost_usd], null),
         };
     }
 
@@ -569,6 +569,13 @@ function _pick(obj, keys) {
         if (obj[key] != null) return obj[key];
     }
     return undefined;
+}
+
+function _firstDefined(values, fallback) {
+    for (const value of values) {
+        if (value !== undefined && value !== null) return value;
+    }
+    return fallback;
 }
 
 function _extractDate(timestamp) {
@@ -588,7 +595,7 @@ function _extractDate(timestamp) {
     if (typeof timestamp === 'string') {
         try {
             return new Date(timestamp).toISOString().slice(0, 10);
-        } catch {
+        } catch (e) {
             return timestamp.slice(0, 10);
         }
     }

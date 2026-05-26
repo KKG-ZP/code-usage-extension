@@ -1,22 +1,23 @@
-import GLib from 'gi://GLib';
-import GObject from 'gi://GObject';
-import Gio from 'gi://Gio';
-import St from 'gi://St';
-import Clutter from 'gi://Clutter';
-import Pango from 'gi://Pango';
-
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
-import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-
-import { DataSource } from './dataSource.js';
-import { DataProcessor } from './dataProcessor.js';
-import { IDLE_THRESHOLD_MS } from './cacheManager.js';
-import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
+const GLib = imports.gi.GLib;
+const GObject = imports.gi.GObject;
+const Gio = imports.gi.Gio;
+const St = imports.gi.St;
+const Clutter = imports.gi.Clutter;
+const Pango = imports.gi.Pango;
+const Main = imports.ui.main;
+const PanelMenu = imports.ui.panelMenu;
+const PopupMenu = imports.ui.popupMenu;
+const Me = imports.misc.extensionUtils.getCurrentExtension();
+const DataSource = Me.imports.modules.dataSource.DataSource;
+const DataProcessor = Me.imports.modules.dataProcessor.DataProcessor;
+const IDLE_THRESHOLD_MS = Me.imports.modules.cacheManager.IDLE_THRESHOLD_MS;
+const DefaultPricing = Me.imports.modules.defaultPricing;
+const AGENT_BRAND_COLORS = DefaultPricing.AGENT_BRAND_COLORS;
+const AGENT_BRAND_TEXT_COLORS = DefaultPricing.AGENT_BRAND_TEXT_COLORS;
 
 let _ = (s) => s;
 
-export function setGettext(fn) {
+function setGettext(fn) {
     _ = fn;
 }
 
@@ -91,7 +92,7 @@ const DATE_PRESETS = [
     { id: 'all', label: _('全部') },
 ];
 
-export const CodeUsageIndicator = GObject.registerClass(
+var CodeUsageIndicator = GObject.registerClass(
 class CodeUsageIndicator extends PanelMenu.Button {
     _init(extensionPath, settings, openPreferences) {
         super._init(0.0, _('代码用量监控'));

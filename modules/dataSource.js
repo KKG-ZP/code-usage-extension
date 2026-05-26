@@ -8,17 +8,24 @@
 // Amp, CodeBuff, plus SQLite-backed agents (OpenCode, Goose, Hermes, Kilo)
 // via the optional sqlite3 CLI.
 
-import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
-import { parseClaudeEntry } from './parsers.js';
-import {
-    parseCodexLine, parseGeminiFile, parseKimiLine,
-    parseOpenClawLine, parsePILine, parseQwenLine,
-    parseCopilotLine, parseAmpFile, parseCodeBuffFile,
-} from './parsers.js';
-import { FileCacheManager } from './cacheManager.js';
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
+const Me = imports.misc.extensionUtils.getCurrentExtension();
+const Parsers = Me.imports.modules.parsers;
+const CacheManager = Me.imports.modules.cacheManager;
+const parseClaudeEntry = Parsers.parseClaudeEntry;
+const parseCodexLine = Parsers.parseCodexLine;
+const parseGeminiFile = Parsers.parseGeminiFile;
+const parseKimiLine = Parsers.parseKimiLine;
+const parseOpenClawLine = Parsers.parseOpenClawLine;
+const parsePILine = Parsers.parsePILine;
+const parseQwenLine = Parsers.parseQwenLine;
+const parseCopilotLine = Parsers.parseCopilotLine;
+const parseAmpFile = Parsers.parseAmpFile;
+const parseCodeBuffFile = Parsers.parseCodeBuffFile;
+const FileCacheManager = CacheManager.FileCacheManager;
 
-const AGENT_CONFIGS = {
+var AGENT_CONFIGS = {
     claude: {
         name: 'Claude Code',
         appType: 'claude',
@@ -198,7 +205,7 @@ const AGENT_CONFIGS = {
                         }
                     }
                     enumerator.close(null);
-                } catch { /* ignore */ }
+                } catch (e) { /* ignore */ }
             }
             return dirs;
         },
@@ -219,7 +226,7 @@ const AGENT_CONFIGS = {
     },
 };
 
-export class DataSource {
+var DataSource = class DataSource {
     constructor(settings) {
         this._settings = settings;
         this._cache = new FileCacheManager(settings, AGENT_CONFIGS);
@@ -248,5 +255,3 @@ export class DataSource {
         this._cache.clear();
     }
 }
-
-export { AGENT_CONFIGS };
