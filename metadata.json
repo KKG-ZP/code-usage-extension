@@ -3,11 +3,6 @@
   "description": "实时监控编码代理的 API 使用统计：Token 消耗、缓存命中率、费用成本。支持 Claude Code、Codex、Gemini 等 15+ 编码代理。",
   "uuid": "code-usage@gnome-extensions.local",
   "shell-version": [
-    "40",
-    "41",
-    "42",
-    "43",
-    "44",
     "45",
     "46",
     "47",
