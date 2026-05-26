@@ -106,12 +106,14 @@ export function parseCodexLine(line, filePath) {
         const raw = JSON.parse(line);
 
         if (raw.type === 'session_meta') {
-            const model = raw.payload?.model_provider || raw.payload?.model || raw.payload?.cli_version;
-            if (model) _codexSessionModels.set(filePath, model);
             return null;
         }
 
-        if (raw.payload?.type === 'turn_context') return null;
+        if (raw.type === 'turn_context' || raw.payload?.type === 'turn_context') {
+            const model = raw.payload?.model;
+            if (model) _codexSessionModels.set(filePath, model);
+            return null;
+        }
 
         let usage = null;
         let model = null;
