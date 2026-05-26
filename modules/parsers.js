@@ -137,10 +137,6 @@ export function parseCodexLine(line, filePath) {
 
         if (!usage) return null;
 
-        if (typeof timestamp === 'number') {
-            timestamp = new Date(timestamp).toISOString();
-        }
-
         return {
             date: _extractDate(timestamp),
             model: model || 'codex',
@@ -572,26 +568,33 @@ function _pick(obj, keys) {
 }
 
 function _extractDate(timestamp) {
-    if (!timestamp) return new Date().toISOString().slice(0, 10);
+    if (!timestamp) return _formatLocalDate(new Date());
 
     if (typeof timestamp === 'number') {
         const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
-        return new Date(ms).toISOString().slice(0, 10);
+        return _formatLocalDate(new Date(ms));
     }
 
     if (Array.isArray(timestamp)) {
         const seconds = timestamp[0] || 0;
         const nanos = timestamp[1] || 0;
-        return new Date(seconds * 1000 + nanos / 1e6).toISOString().slice(0, 10);
+        return _formatLocalDate(new Date(seconds * 1000 + nanos / 1e6));
     }
 
     if (typeof timestamp === 'string') {
-        try {
-            return new Date(timestamp).toISOString().slice(0, 10);
-        } catch {
-            return timestamp.slice(0, 10);
+        const parsed = new Date(timestamp);
+        if (!Number.isNaN(parsed.getTime())) {
+            return _formatLocalDate(parsed);
         }
+        return timestamp.slice(0, 10);
     }
 
-    return new Date().toISOString().slice(0, 10);
+    return _formatLocalDate(new Date());
+}
+
+function _formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }

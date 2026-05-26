@@ -74,8 +74,29 @@ export function formatTokens(tokens, format = 'auto') {
     return tokens.toLocaleString();
 }
 
-export function calculateCacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens) {
-    const denominator = inputTokens + cacheCreationTokens + cacheReadTokens;
+export function calculateCacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens, inputIncludesCacheRead = false) {
+    const denominator = inputIncludesCacheRead
+        ? inputTokens + cacheCreationTokens
+        : inputTokens + cacheCreationTokens + cacheReadTokens;
     if (denominator === 0) return 0;
     return cacheReadTokens / denominator;
+}
+
+export function calculateTokenAccountingForApp(appType, usage) {
+    const inputTokens = usage.inputTokens || 0;
+    const outputTokens = usage.outputTokens || 0;
+    const cacheCreationTokens = usage.cacheCreationTokens || 0;
+    const cacheReadTokens = usage.cacheReadTokens || 0;
+    const inputIncludesCacheRead = CACHE_INCLUSIVE_APP_TYPES.has(appType);
+
+    const promptInputTokens = inputIncludesCacheRead
+        ? inputTokens + cacheCreationTokens
+        : inputTokens + cacheCreationTokens + cacheReadTokens;
+
+    return {
+        promptInputTokens,
+        totalTokens: promptInputTokens + outputTokens,
+        cacheHitDenominator: promptInputTokens,
+        cacheHitRate: promptInputTokens > 0 ? cacheReadTokens / promptInputTokens : 0,
+    };
 }

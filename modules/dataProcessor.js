@@ -1,4 +1,4 @@
-import { CostCalculator, formatCost, formatTokens, calculateCacheHitRate } from './costCalculator.js';
+import { CostCalculator, formatCost, formatTokens, calculateTokenAccountingForApp } from './costCalculator.js';
 import { getPricingForModel } from './pricingResolver.js';
 import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
 
@@ -24,6 +24,8 @@ export class DataProcessor {
         let totalOutputTokens = 0;
         let totalCacheCreationTokens = 0;
         let totalCacheReadTokens = 0;
+        let totalUsageTokens = 0;
+        let totalCacheHitDenominator = 0;
         let totalCost = 0;
         let calculatedCost = 0;
         const modelStats = {};
@@ -48,6 +50,7 @@ export class DataProcessor {
                 cacheReadTokens: entry.cacheReadTokens || 0,
                 cacheCreationTokens: entry.cacheCreationTokens || 0,
             };
+            const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
 
             let entryCost = 0;
             if (entry.costUSD != null) {
@@ -62,6 +65,8 @@ export class DataProcessor {
             totalOutputTokens += usage.outputTokens;
             totalCacheCreationTokens += usage.cacheCreationTokens;
             totalCacheReadTokens += usage.cacheReadTokens;
+            totalUsageTokens += tokenAccounting.totalTokens;
+            totalCacheHitDenominator += tokenAccounting.cacheHitDenominator;
             totalCost += entryCost;
 
             const modelKey = entry.model || 'unknown';
@@ -79,6 +84,8 @@ export class DataProcessor {
                     cacheReadTokens: 0,
                     cacheCreationTokens: 0,
                     totalCost: 0,
+                    totalTokens: 0,
+                    cacheHitDenominator: 0,
                     requestCount: 0,
                 };
             }
@@ -87,6 +94,8 @@ export class DataProcessor {
             modelStats[compositeKey].cacheReadTokens += usage.cacheReadTokens;
             modelStats[compositeKey].cacheCreationTokens += usage.cacheCreationTokens;
             modelStats[compositeKey].totalCost += entryCost;
+            modelStats[compositeKey].totalTokens += tokenAccounting.totalTokens;
+            modelStats[compositeKey].cacheHitDenominator += tokenAccounting.cacheHitDenominator;
             modelStats[compositeKey].requestCount += 1;
 
             if (!dailyMap[entry.date]) {
@@ -102,13 +111,13 @@ export class DataProcessor {
             dailyMap[entry.date].cacheCreationTokens += usage.cacheCreationTokens;
             dailyMap[entry.date].cacheReadTokens += usage.cacheReadTokens;
             dailyMap[entry.date].cost += entryCost;
-            dailyMap[entry.date].totalTokens += usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
+            dailyMap[entry.date].totalTokens += tokenAccounting.totalTokens;
             dailyMap[entry.date].requestCount += 1;
         }
 
-        const cacheHitRate = calculateCacheHitRate(
-            totalInputTokens, totalCacheCreationTokens, totalCacheReadTokens
-        );
+        const cacheHitRate = totalCacheHitDenominator > 0
+            ? totalCacheReadTokens / totalCacheHitDenominator
+            : 0;
 
         const modelList = Object.values(modelStats).sort((a, b) => b.totalCost - a.totalCost);
         const maxModelCost = modelList.length > 0 ? modelList[0].totalCost : 1;
@@ -116,11 +125,11 @@ export class DataProcessor {
         const dailyArr = Object.values(dailyMap);
         dailyArr.sort((a, b) => sortOrder === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date));
 
-        const totalRealTokens = totalInputTokens + totalOutputTokens + totalCacheCreationTokens + totalCacheReadTokens;
+        const totalRealTokens = totalUsageTokens;
 
         return {
             totalRequests,
-            totalTokens: totalInputTokens + totalOutputTokens,
+            totalTokens: totalRealTokens,
             totalRealTokens,
             totalCost,
             totalCostFormatted: formatCost(totalCost, currency, exchangeRate),
@@ -136,16 +145,16 @@ export class DataProcessor {
             daily: dailyArr,
             modelStats: modelList.map(m => ({
                 ...m,
-                totalTokens: m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens,
+                totalTokens: m.totalTokens,
                 percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
                 totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
                 inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
                 outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
                 cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
                 cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
-                cacheHitRate: calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens),
-                cacheHitRateFormatted: `${(calculateCacheHitRate(m.inputTokens, m.cacheCreationTokens, m.cacheReadTokens) * 100).toFixed(1)}%`,
-                totalTokensFormatted: formatTokens(m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens, tokenFormat),
+                cacheHitRate: m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0,
+                cacheHitRateFormatted: `${((m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0) * 100).toFixed(1)}%`,
+                totalTokensFormatted: formatTokens(m.totalTokens, tokenFormat),
             })),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
@@ -154,18 +163,22 @@ export class DataProcessor {
     }
 
     _buildDateFilter(preset, customSince, customUntil) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = _formatLocalDate(new Date());
 
         if (preset === 'today') {
             const todayStr = today;
             return (date) => date >= todayStr;
         }
         if (preset === '7d') {
-            const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+            const sinceDate = new Date();
+            sinceDate.setDate(sinceDate.getDate() - 7);
+            const since = _formatLocalDate(sinceDate);
             return (date) => date >= since;
         }
         if (preset === '30d') {
-            const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+            const sinceDate = new Date();
+            sinceDate.setDate(sinceDate.getDate() - 30);
+            const since = _formatLocalDate(sinceDate);
             return (date) => date >= since;
         }
         if (preset === 'all') {
@@ -210,4 +223,10 @@ export class DataProcessor {
             exchangeRate,
         };
     }
+}
+function _formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
