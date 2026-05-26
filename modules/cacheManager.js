@@ -1,0 +1,532 @@
+// File-level cache + change detection for agent log sources.
+//
+// Responsibility split:
+//   * scanAndDiff(agents): walk every selected agent's directories, compare
+//     each file's (mtime, size) against the cache, re-parse only the files
+//     whose stat changed. Reports whether anything changed plus the most
+//     recent mtime seen, which feeds the active/idle state machine.
+//   * getMergedEntries(): return the flattened entries array (with `_agent`
+//     injected per entry) used by DataProcessor. Reuses a memoised array
+//     until the next file-level change invalidates it.
+//
+// Task 1 baseline: every changed file is fully re-read and fully re-parsed.
+// Task 2 will add incremental jsonl reads (offset + pendingTail). Task 3
+// will harden the SQLite path with WAL/SHM mtime tracking and result reuse.
+
+import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
+
+import {
+    parseGeminiFile, parseAmpFile, parseCodeBuffFile, parseSQLiteAgent,
+} from './parsers.js';
+
+export const IDLE_THRESHOLD_MS = 120 * 1000;
+
+const TEXT_DECODER = new TextDecoder('utf-8');
+
+/**
+ * Classify an agent config into one of three IO strategies. The classification
+ * decides how the file's bytes turn into entries on a cache miss.
+ *
+ *   'sqlite'     — query the database via parseSQLiteAgent.
+ *   'whole-file' — single JSON document parsed as one unit (Gemini/Amp/CodeBuff).
+ *   'jsonl'      — one entry per line (everything else).
+ */
+function _classifyAgent(config) {
+    if (config.sqlite) return 'sqlite';
+    if (config.parse === parseGeminiFile ||
+        config.parse === parseAmpFile ||
+        config.parse === parseCodeBuffFile) {
+        return 'whole-file';
+    }
+    return 'jsonl';
+}
+
+export class FileCacheManager {
+    constructor(settings, agentConfigs) {
+        this._settings = settings;
+        this._agentConfigs = agentConfigs;
+        // filePath -> { agent, fileType, mtime, size, offset, pendingTail, entries }
+        this._fileCache = new Map();
+        this._mergedEntries = null;
+        this._mergedDirty = true;
+        this._lastActivityAt = 0;
+    }
+
+    _debug(msg) {
+        if (this._settings.get_boolean('debug-mode')) {
+            console.log(`Code Usage: ${msg}`);
+        }
+    }
+
+    /**
+     * Walk the selected agents, refresh cache entries for files whose
+     * (mtime, size) differs from what we already cached, and prune entries
+     * for files that have disappeared.
+     *
+     * Returns { changed, lastActivityAt } where lastActivityAt is the maximum
+     * mtime (in ms) observed across every file the cache currently tracks
+     * after this scan. The caller uses it to decide whether the user is
+     * actively producing logs or has gone idle.
+     */
+    async scanAndDiff(agents) {
+        const seenPaths = new Set();
+        let anyChanged = false;
+        let maxMtimeMs = 0;
+        let bytesRead = 0;
+        let filesParsed = 0;
+        let incrementalCount = 0;
+
+        for (const agent of agents) {
+            const config = this._agentConfigs[agent];
+            if (!config) continue;
+
+            const fileType = _classifyAgent(config);
+            const files = this._collectFilesForAgent(agent, config, fileType);
+
+            for (const info of files) {
+                seenPaths.add(info.path);
+                if (info.mtimeMs > maxMtimeMs) maxMtimeMs = info.mtimeMs;
+
+                const cached = this._fileCache.get(info.path);
+                const decision = this._decideRefresh(cached, info, fileType, agent);
+                if (decision === 'skip') continue;
+
+                anyChanged = true;
+                filesParsed += 1;
+
+                try {
+                    if (fileType === 'sqlite') {
+                        const entries = await parseSQLiteAgent(agent, info.path, config);
+                        this._fileCache.set(info.path, {
+                            agent,
+                            fileType,
+                            mtimeMs: info.mtimeMs,
+                            size: info.size,
+                            offset: 0,
+                            pendingTail: '',
+                            entries,
+                        });
+                    } else if (decision === 'incremental') {
+                        const result = this._readJsonlIncremental(cached, info, agent, config);
+                        bytesRead += result.bytesRead;
+                        if (result.mode === 'incremental') incrementalCount += 1;
+                        // Mutate the cache entry in place; entries array is owned
+                        // by the cache and merged-flat is rebuilt on demand.
+                        cached.entries = result.entries;
+                        cached.offset = result.offset;
+                        cached.pendingTail = result.pendingTail;
+                        cached.mtimeMs = info.mtimeMs;
+                        cached.size = info.size;
+                    } else {
+                        // 'full': cold load, whole-file agent, truncation, or
+                        // in-place rewrite where size matches but mtime advanced.
+                        const content = this._readWholeFile(info.path);
+                        bytesRead += content.byteLength;
+                        const parsed = this._parseSnapshot(content.text, info.path, agent, config, fileType);
+                        this._fileCache.set(info.path, {
+                            agent,
+                            fileType,
+                            mtimeMs: info.mtimeMs,
+                            size: info.size,
+                            offset: content.byteLength,
+                            pendingTail: parsed.pendingTail,
+                            entries: parsed.entries,
+                        });
+                    }
+                } catch (e) {
+                    this._debug(`refresh failed ${info.path}: ${e.message}`);
+                }
+            }
+        }
+
+        // Prune cache entries for files that no longer exist or are no longer
+        // covered by the selected agents.
+        for (const [path, _e] of this._fileCache.entries()) {
+            if (!seenPaths.has(path)) {
+                this._fileCache.delete(path);
+                anyChanged = true;
+            }
+        }
+
+        if (anyChanged) {
+            this._mergedDirty = true;
+            this._debug(
+                `scan: ${filesParsed} refreshed (${incrementalCount} incremental), ` +
+                `${bytesRead} bytes read, ${this._fileCache.size} cached`,
+            );
+        }
+        this._lastActivityAt = maxMtimeMs;
+
+        return { changed: anyChanged, lastActivityAt: this._lastActivityAt };
+    }
+
+    /**
+     * Decide which refresh strategy applies to a single file based on the
+     * cached state and the freshly-stat'd info.
+     *
+     *   'skip'        — cache is up to date, nothing to do.
+     *   'incremental' — append-only growth on a jsonl file; safe to read tail.
+     *   'full'        — cold cache miss, whole-file agent, sqlite, truncation,
+     *                   or in-place edit (size unchanged but mtime advanced).
+     */
+    _decideRefresh(cached, info, fileType, agent) {
+        if (!cached) return 'full';
+        if (cached.agent !== agent || cached.fileType !== fileType) return 'full';
+        if (cached.mtimeMs === info.mtimeMs && cached.size === info.size) return 'skip';
+        if (fileType !== 'jsonl') return 'full';
+        // Append-only growth → safe to incrementally read the tail.
+        if (info.size > cached.size && info.mtimeMs >= cached.mtimeMs) {
+            return 'incremental';
+        }
+        // Truncation, rotation, or in-place edit → reload whole file.
+        return 'full';
+    }
+
+    /**
+     * Flatten cached entries into a single array. Memoised until the next
+     * cache invalidation. Each returned entry has `_agent` set so downstream
+     * processing can attribute usage to the correct agent.
+     */
+    getMergedEntries() {
+        if (this._mergedEntries !== null && !this._mergedDirty) {
+            return this._mergedEntries;
+        }
+        const all = [];
+        for (const cached of this._fileCache.values()) {
+            for (const entry of cached.entries) {
+                entry._agent = cached.agent;
+                all.push(entry);
+            }
+        }
+        this._mergedEntries = all;
+        this._mergedDirty = false;
+        return all;
+    }
+
+    /** Drop all cached state. Used when the cache structure must be rebuilt. */
+    clear() {
+        this._fileCache.clear();
+        this._mergedEntries = null;
+        this._mergedDirty = true;
+        this._lastActivityAt = 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // private helpers
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Resolve a list of {path, mtimeMs, size} entries that this agent's config
+     * currently exposes. SQLite agents enumerate db files explicitly; file-based
+     * agents recurse via the scanner.
+     */
+    _collectFilesForAgent(agent, config, fileType) {
+        const out = [];
+        const dirs = config.dirs();
+
+        if (fileType === 'sqlite') {
+            for (const dirPath of dirs) {
+                for (const dbFile of config.dbFiles) {
+                    const dbPath = GLib.build_filenamev([dirPath, dbFile]);
+                    const stat = this._statSqliteWithSidecars(dbPath);
+                    if (stat) {
+                        out.push({ path: dbPath, mtimeMs: stat.mtimeMs, size: stat.size });
+                    }
+                }
+            }
+            return out;
+        }
+
+        for (const dirPath of dirs) {
+            this._scanDir(dirPath, config.pattern, config.recursive, out);
+        }
+        return out;
+    }
+
+    /**
+     * SQLite databases in WAL mode often leave the main .db file's mtime
+     * untouched while writes accumulate in the .db-wal sidecar. Treat the
+     * (mtime, size) tuple as the union over .db, .db-wal, and .db-shm so
+     * change detection still fires when the user has been actively writing.
+     *
+     * Returns null if the main .db file does not exist.
+     */
+    _statSqliteWithSidecars(dbPath) {
+        const main = this._statFile(dbPath);
+        if (!main) return null;
+
+        let mtimeMs = main.mtimeMs;
+        let size = main.size;
+        for (const suffix of ['-wal', '-shm']) {
+            const side = this._statFile(dbPath + suffix);
+            if (!side) continue;
+            if (side.mtimeMs > mtimeMs) mtimeMs = side.mtimeMs;
+            // Sum sidecar sizes into the signature so a growing WAL trips
+            // the cache without needing a separate field; this number is a
+            // change-detection key, not a literal file size.
+            size += side.size;
+        }
+        return { mtimeMs, size };
+    }
+
+    _scanDir(dirPath, pattern, recursive, out) {
+        const dir = Gio.File.new_for_path(dirPath);
+        if (!dir.query_exists(null)) return;
+
+        let enumerator;
+        try {
+            enumerator = dir.enumerate_children(
+                'standard::name,standard::type,time::modified,time::modified-usec,standard::size',
+                Gio.FileQueryInfoFlags.NONE,
+                null,
+            );
+        } catch (e) {
+            this._debug(`enumerate failed ${dirPath}: ${e.message}`);
+            return;
+        }
+
+        try {
+            let info;
+            while ((info = enumerator.next_file(null)) !== null) {
+                const childType = info.get_file_type();
+                const child = enumerator.get_child(info);
+                const childPath = child.get_path();
+
+                if (childType === Gio.FileType.DIRECTORY) {
+                    if (recursive) this._scanDir(childPath, pattern, true, out);
+                } else if (childType === Gio.FileType.REGULAR) {
+                    const name = info.get_name();
+                    if (!pattern || pattern.test(name)) {
+                        out.push({
+                            path: childPath,
+                            mtimeMs: _mtimeMsFromInfo(info),
+                            size: Number(info.get_size()),
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            this._debug(`iter failed ${dirPath}: ${e.message}`);
+        } finally {
+            try { enumerator.close(null); } catch (_e) { /* ignore */ }
+        }
+    }
+
+    _statFile(filePath) {
+        const file = Gio.File.new_for_path(filePath);
+        if (!file.query_exists(null)) return null;
+        try {
+            const info = file.query_info(
+                'time::modified,time::modified-usec,standard::size',
+                Gio.FileQueryInfoFlags.NONE,
+                null,
+            );
+            return {
+                mtimeMs: _mtimeMsFromInfo(info),
+                size: Number(info.get_size()),
+            };
+        } catch (e) {
+            this._debug(`stat failed ${filePath}: ${e.message}`);
+            return null;
+        }
+    }
+
+    _readWholeFile(filePath) {
+        try {
+            const file = Gio.File.new_for_path(filePath);
+            const [ok, contents] = file.load_contents(null);
+            if (!ok) return { text: '', byteLength: 0 };
+            return {
+                text: TEXT_DECODER.decode(contents),
+                byteLength: contents.length,
+            };
+        } catch (e) {
+            this._debug(`read failed ${filePath}: ${e.message}`);
+            return { text: '', byteLength: 0 };
+        }
+    }
+
+    /**
+     * Read the tail bytes of a jsonl file that have been appended since the
+     * last scan, parse newly-completed lines, and stash any unfinished
+     * trailing line in pendingTail for the next call. The caller is
+     * responsible for committing the returned values back to the cache.
+     *
+     * Returns { entries, offset, pendingTail, bytesRead, mode } where mode is:
+     *   'incremental'      — normal append-only path, only new bytes read.
+     *   'truncate-reload'  — file shrank or mtime regressed; full reload done.
+     *   'fallback-reload'  — incremental read failed; fell back to full reload.
+     */
+    _readJsonlIncremental(cached, info, agent, config) {
+        // Defensive: if size went backwards or mtime regressed, the file was
+        // truncated/rotated. Discard cached state and reload from scratch.
+        if (info.size < cached.size || info.mtimeMs < cached.mtimeMs) {
+            this._debug(`truncation detected ${info.path} (size ${cached.size}->${info.size})`);
+            const content = this._readWholeFile(info.path);
+            const parsed = this._parseSnapshot(content.text, info.path, agent, config, 'jsonl');
+            return {
+                entries: parsed.entries,
+                offset: content.byteLength,
+                pendingTail: parsed.pendingTail,
+                bytesRead: content.byteLength,
+                mode: 'truncate-reload',
+            };
+        }
+
+        const newBytes = info.size - cached.offset;
+        if (newBytes <= 0) {
+            // Size matches our offset; nothing actually new even though stat
+            // claimed a change (e.g. mtime touched without write). Keep state.
+            return {
+                entries: cached.entries,
+                offset: cached.offset,
+                pendingTail: cached.pendingTail,
+                bytesRead: 0,
+                mode: 'incremental',
+            };
+        }
+
+        let newText;
+        try {
+            const file = Gio.File.new_for_path(info.path);
+            const stream = file.read(null);
+            try {
+                if (cached.offset > 0) {
+                    stream.skip(cached.offset, null);
+                }
+                const bytes = stream.read_bytes(newBytes, null);
+                const data = bytes.toArray();
+                newText = TEXT_DECODER.decode(data);
+            } finally {
+                try { stream.close(null); } catch (_e) { /* ignore */ }
+            }
+        } catch (e) {
+            this._debug(`incremental read failed ${info.path}: ${e.message}; falling back to full reload`);
+            const content = this._readWholeFile(info.path);
+            const parsed = this._parseSnapshot(content.text, info.path, agent, config, 'jsonl');
+            return {
+                entries: parsed.entries,
+                offset: content.byteLength,
+                pendingTail: parsed.pendingTail,
+                bytesRead: content.byteLength,
+                mode: 'fallback-reload',
+            };
+        }
+
+        // Glue any unfinished trailing line from last cycle to the front of
+        // the new bytes, then split out parseable [...lines] vs the new
+        // unfinished trailer (everything after the final \n).
+        const combined = cached.pendingTail + newText;
+        const lastNewline = combined.lastIndexOf('\n');
+
+        let parseable, newPendingTail;
+        if (lastNewline < 0) {
+            parseable = '';
+            newPendingTail = combined;
+        } else {
+            parseable = combined.slice(0, lastNewline);
+            newPendingTail = combined.slice(lastNewline + 1);
+        }
+
+        const entries = cached.entries;
+        if (parseable) {
+            const lines = parseable.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                try {
+                    const entry = config.parse(trimmed, info.path);
+                    if (entry) entries.push(entry);
+                } catch (_e) {
+                    /* skip malformed line */
+                }
+            }
+        }
+
+        return {
+            entries,
+            offset: info.size,
+            pendingTail: newPendingTail,
+            bytesRead: newBytes,
+            mode: 'incremental',
+        };
+    }
+
+    /**
+     * Full re-parse of a file snapshot. JSONL snapshots preserve an
+     * unfinished trailing line so the next incremental read can complete it.
+     */
+    _parseSnapshot(content, filePath, agent, config, fileType) {
+        if (!content) return { entries: [], pendingTail: '' };
+        if (fileType === 'whole-file') {
+            try {
+                return { entries: config.parse(content, filePath, agent) || [], pendingTail: '' };
+            } catch (e) {
+                this._debug(`whole-file parse failed ${filePath}: ${e.message}`);
+                return { entries: [], pendingTail: '' };
+            }
+        }
+
+        return this._parseJsonlSnapshot(content, filePath, config);
+    }
+
+    _parseJsonlSnapshot(content, filePath, config) {
+        const out = [];
+        let parseable = content;
+        let pendingTail = '';
+
+        const lastNewline = content.lastIndexOf('\n');
+        if (lastNewline < 0) {
+            parseable = this._looksLikeCompleteJsonLine(content) ? content : '';
+            pendingTail = parseable ? '' : content;
+        } else if (lastNewline < content.length - 1) {
+            const tail = content.slice(lastNewline + 1);
+            if (!this._looksLikeCompleteJsonLine(tail)) {
+                parseable = content.slice(0, lastNewline);
+                pendingTail = tail;
+            }
+        }
+
+        // jsonl: one entry per line.
+        const lines = parseable.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+                const entry = config.parse(trimmed, filePath);
+                if (entry) out.push(entry);
+            } catch (_e) {
+                /* skip malformed line */
+            }
+        }
+        return { entries: out, pendingTail };
+    }
+
+    _looksLikeCompleteJsonLine(line) {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        try {
+            JSON.parse(trimmed);
+            return true;
+        } catch (_e) {
+            return false;
+        }
+    }
+}
+
+/**
+ * Convert a Gio.FileInfo's modification time into milliseconds since epoch.
+ * Combines seconds + microseconds when the latter is available so that two
+ * writes within the same wall-clock second still register as distinct mtimes.
+ */
+function _mtimeMsFromInfo(info) {
+    const sec = Number(info.get_attribute_uint64('time::modified'));
+    let usec = 0;
+    try {
+        usec = Number(info.get_attribute_uint32('time::modified-usec')) || 0;
+    } catch (_e) {
+        usec = 0;
+    }
+    return sec * 1000 + Math.floor(usec / 1000);
+}

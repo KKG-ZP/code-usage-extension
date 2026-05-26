@@ -1,6 +1,12 @@
-// Direct local file data source - reads agent log files without ccusage dependency
-// Supports: Claude Code, Codex, Gemini, Kimi, OpenClaw, PI, Qwen, Copilot, Amp, CodeBuff
-// SQLite agents (OpenCode, Goose, Hermes, Kilo) via optional sqlite3 CLI
+// Agent source registry + thin DataSource facade.
+//
+// AGENT_CONFIGS describes where each supported coding agent stores its log
+// data and how to parse a single record. The actual scanning, caching, and
+// incremental parsing live in FileCacheManager — DataSource only forwards.
+//
+// Supported: Claude Code, Codex, Gemini, Kimi, OpenClaw, PI, Qwen, Copilot,
+// Amp, CodeBuff, plus SQLite-backed agents (OpenCode, Goose, Hermes, Kilo)
+// via the optional sqlite3 CLI.
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
@@ -9,8 +15,8 @@ import {
     parseCodexLine, parseGeminiFile, parseKimiLine,
     parseOpenClawLine, parsePILine, parseQwenLine,
     parseCopilotLine, parseAmpFile, parseCodeBuffFile,
-    parseSQLiteAgent
 } from './parsers.js';
+import { FileCacheManager } from './cacheManager.js';
 
 const AGENT_CONFIGS = {
     claude: {
@@ -216,138 +222,30 @@ const AGENT_CONFIGS = {
 export class DataSource {
     constructor(settings) {
         this._settings = settings;
-        this._debug = settings.get_boolean('debug-mode');
+        this._cache = new FileCacheManager(settings, AGENT_CONFIGS);
     }
 
-    async fetchAgentData(agent) {
-        const config = AGENT_CONFIGS[agent];
-        if (!config) return [];
-
-        if (config.sqlite) {
-            return this._fetchSQLiteAgent(agent, config);
-        }
-
-        if (!config.parse) {
-            if (this._debug) console.log(`Code Usage: No parser for agent ${agent}`);
-            return [];
-        }
-
-        const entries = [];
-        const dirs = config.dirs();
-
-        for (const dirPath of dirs) {
-            const files = this._scanFiles(dirPath, config.pattern, config.recursive);
-            for (const filePath of files) {
-                try {
-                    const content = this._readFile(filePath);
-                    if (!content) continue;
-
-                    if (config.parse === parseGeminiFile || config.parse === parseAmpFile || config.parse === parseCodeBuffFile) {
-                        const parsed = config.parse(content, filePath, agent);
-                        entries.push(...parsed);
-                    } else {
-                        const lines = content.split('\n');
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (!trimmed) continue;
-                            const entry = config.parse(trimmed, filePath);
-                            if (entry) entries.push(entry);
-                        }
-                    }
-                } catch (e) {
-                    if (this._debug) console.log(`Code Usage: Error reading ${filePath}: ${e.message}`);
-                }
-            }
-        }
-
-        return entries;
+    /**
+     * Refresh the underlying file cache for the given agents. Returns
+     * { changed, lastActivityAt } so callers can drive an active/idle
+     * timer state machine without re-reading file metadata themselves.
+     */
+    async scanAndDiff(agents) {
+        return this._cache.scanAndDiff(agents);
     }
 
-    async fetchMultiAgentData(agents) {
-        const allEntries = [];
-        for (const agent of agents) {
-            try {
-                const entries = await this.fetchAgentData(agent);
-                for (const entry of entries) {
-                    entry._agent = agent;
-                    allEntries.push(entry);
-                }
-            } catch (e) {
-                if (this._debug) console.log(`Code Usage: Failed to fetch ${agent}: ${e.message}`);
-            }
-        }
-        return allEntries;
+    /**
+     * Return the current merged entries snapshot. Cheap (memoised) when no
+     * scan has invalidated it — this is what enables settings-only changes
+     * (currency, sort, etc.) to skip IO entirely.
+     */
+    getEntries() {
+        return this._cache.getMergedEntries();
     }
 
-    async _fetchSQLiteAgent(agent, config) {
-        const dirs = config.dirs();
-        const entries = [];
-
-        for (const dirPath of dirs) {
-            for (const dbFile of config.dbFiles) {
-                const dbPath = GLib.build_filenamev([dirPath, dbFile]);
-                const file = Gio.File.new_for_path(dbPath);
-                if (!file.query_exists(null)) continue;
-
-                try {
-                    const result = await parseSQLiteAgent(agent, dbPath, config);
-                    entries.push(...result);
-                } catch (e) {
-                    if (this._debug) console.log(`Code Usage: SQLite error for ${agent}: ${e.message}`);
-                }
-            }
-        }
-
-        return entries;
-    }
-
-    _scanFiles(dirPath, pattern, recursive) {
-        const files = [];
-        const dir = Gio.File.new_for_path(dirPath);
-        if (!dir.query_exists(null)) return files;
-
-        try {
-            const enumerator = dir.enumerate_children(
-                'standard::name,standard::type',
-                Gio.FileQueryInfoFlags.NONE,
-                null
-            );
-
-            let info;
-            while ((info = enumerator.next_file(null)) !== null) {
-                const name = info.get_name();
-                const child = enumerator.get_child(info);
-                const path = child.get_path();
-
-                if (info.get_file_type() === Gio.FileType.DIRECTORY) {
-                    if (recursive) {
-                        files.push(...this._scanFiles(path, pattern, true));
-                    }
-                } else if (info.get_file_type() === Gio.FileType.REGULAR) {
-                    if (pattern && pattern.test(name)) {
-                        files.push(path);
-                    }
-                }
-            }
-            enumerator.close(null);
-        } catch (e) {
-            if (this._debug) console.log(`Code Usage: Error scanning ${dirPath}: ${e.message}`);
-        }
-
-        return files;
-    }
-
-    _readFile(filePath) {
-        try {
-            const file = Gio.File.new_for_path(filePath);
-            const [ok, contents] = file.load_contents(null);
-            if (!ok) return null;
-            const decoder = new TextDecoder('utf-8');
-            return decoder.decode(contents);
-        } catch (e) {
-            if (this._debug) console.log(`Code Usage: Error reading file ${filePath}: ${e.message}`);
-            return null;
-        }
+    /** Drop all cached state. Used when the agent set must be rescanned cold. */
+    clearCache() {
+        this._cache.clear();
     }
 }
 

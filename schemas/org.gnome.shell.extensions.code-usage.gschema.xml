@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist gettext-domain="code-usage">
   <schema id="org.gnome.shell.extensions.code-usage" path="/org/gnome/shell/extensions/code-usage/">
-    <key name="refresh-interval" type="i">
+    <key name="active-refresh-interval" type="i">
+      <default>30</default>
+      <summary>活跃刷新间隔（秒）</summary>
+      <description>检测到 agent 日志正在被写入时使用的较短轮询间隔，单位为秒。范围 5-300。</description>
+    </key>
+    <key name="idle-refresh-interval" type="i">
       <default>300</default>
-      <summary>刷新间隔（秒）</summary>
-      <description>自动刷新使用统计数据的时间间隔，单位为秒</description>
+      <summary>空闲刷新间隔（秒）</summary>
+      <description>超过活动阈值未检测到日志变化时使用的较长轮询间隔，单位为秒。范围 30-3600。</description>
     </key>
     <key name="display-mode" type="s">
       <default>'tokens'</default>

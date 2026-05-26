@@ -35,24 +35,38 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
 
     _buildGeneralPage(page, settings) {
         const generalGroup = new Adw.PreferencesGroup({
-            title: _('通用设置'),
-            description: _('配置刷新间隔和面板显示'),
+            title: _('刷新间隔'),
+            description: _('自适应轮询：检测到 agent 日志最近 2 分钟内有写入时使用活跃间隔，否则切换到空闲间隔。'),
         });
         page.add(generalGroup);
 
-        const refreshRow = new Adw.SpinRow({
-            title: _('刷新间隔'),
-            subtitle: _('自动刷新使用统计数据的时间间隔（秒）'),
+        const activeRow = new Adw.SpinRow({
+            title: _('活跃刷新间隔'),
+            subtitle: _('agent 正在写入日志时的轮询间隔（秒，5–300）'),
+            adjustment: new Gtk.Adjustment({
+                lower: 5,
+                upper: 300,
+                step_increment: 5,
+                page_increment: 30,
+                value: settings.get_int('active-refresh-interval'),
+            }),
+        });
+        settings.bind('active-refresh-interval', activeRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        generalGroup.add(activeRow);
+
+        const idleRow = new Adw.SpinRow({
+            title: _('空闲刷新间隔'),
+            subtitle: _('日志静默时的轮询间隔（秒，30–3600）'),
             adjustment: new Gtk.Adjustment({
                 lower: 30,
                 upper: 3600,
                 step_increment: 30,
                 page_increment: 300,
-                value: settings.get_int('refresh-interval'),
+                value: settings.get_int('idle-refresh-interval'),
             }),
         });
-        settings.bind('refresh-interval', refreshRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        generalGroup.add(refreshRow);
+        settings.bind('idle-refresh-interval', idleRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        generalGroup.add(idleRow);
 
         const displayGroup = new Adw.PreferencesGroup({
             title: _('面板显示'),

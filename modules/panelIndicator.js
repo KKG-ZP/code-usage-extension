@@ -11,6 +11,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { DataSource } from './dataSource.js';
 import { DataProcessor } from './dataProcessor.js';
+import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 
 let _ = (s) => s;
@@ -102,9 +103,18 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._processor = new DataProcessor(settings);
         this._lastData = null;
         this._refreshing = false;
+        this._refreshQueued = false;
+        this._queuedShowPlaceholder = false;
+        this._refreshGeneration = 0;
         this._modelExpanded = false;
         this._modelPage = 0;
         this._modelListData = [];
+        this._modelListDirty = false;
+        // Adaptive timer state: 'active' uses active-refresh-interval, 'idle'
+        // uses idle-refresh-interval. Transitions happen after each scan
+        // based on how long ago the most recent log write was.
+        this._intervalState = 'idle';
+        this._lastActivityAt = 0;
 
         this._box = new St.BoxLayout({
             style_class: 'cu-panel-status-box',
@@ -131,26 +141,60 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         this._createMenu();
         Main.panel.menuManager.addMenu(this.menu);
+
+        // When the user opens the popup, render any deferred model list and
+        // kick a full refresh so the just-revealed cards show data as fresh
+        // as possible. The cache layer makes the refresh cheap when nothing
+        // has changed.
+        this._menuOpenStateId = this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (!isOpen) return;
+            if (this._modelListDirty) {
+                this._renderModelList();
+                this._modelListDirty = false;
+            }
+            this._fullRefresh({ showPlaceholder: true });
+        });
+
         this._updateDisplayMode();
         this._updateIconVisibility();
 
         this._settingsChangedId = this._settings.connect('changed', (settings, key) => {
-            if (key === 'refresh-interval') {
-                this._restartTimer();
-            } else if (key === 'display-mode') {
-                this._updateDisplayMode();
-            } else if (key === 'show-icon') {
-                this._updateIconVisibility();
-            } else if (key === 'selected-agents' || key === 'date-range-preset' ||
-                        key === 'custom-date-since' || key === 'custom-date-until' ||
-                        key === 'cost-currency' || key === 'cny-exchange-rate' ||
-                        key === 'cost-multiplier' || key === 'price-overrides' ||
-                        key === 'sort-order' || key === 'debug-mode') {
-                this._refreshUsage();
+            switch (key) {
+                case 'active-refresh-interval':
+                case 'idle-refresh-interval':
+                    this._restartTimer();
+                    break;
+                case 'display-mode':
+                    this._updateDisplayMode();
+                    break;
+                case 'show-icon':
+                    this._updateIconVisibility();
+                    break;
+                case 'selected-agents':
+                    // Agent set changed → drop cache and rescan from scratch.
+                    this._dataSource.clearCache();
+                    this._fullRefresh();
+                    break;
+                case 'cost-currency':
+                case 'cny-exchange-rate':
+                case 'cost-multiplier':
+                case 'price-overrides':
+                case 'sort-order':
+                case 'date-range-preset':
+                case 'custom-date-since':
+                case 'custom-date-until':
+                case 'token-display-format':
+                case 'debug-mode':
+                    // Pure presentation/aggregation changes → re-process the
+                    // cached entries with current settings, no IO.
+                    this._quickReprocess();
+                    break;
+                default:
+                    break;
             }
         });
 
-        this._refreshUsage();
+        this._fullRefresh({ showPlaceholder: true });
         this._startTimer();
     }
 
@@ -266,7 +310,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         this._refreshButton.set_child(refreshIcon);
         this._refreshButton.connect('clicked', () => {
-            this._refreshUsage();
+            this._fullRefresh({ showPlaceholder: true });
         });
         heroHeader.add_child(this._refreshButton);
 
@@ -441,8 +485,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 this._modelPage = 0;
                 this._settings.set_string('date-range-preset', preset.id);
                 this._updateDateButtonStyles();
-                // _refreshUsage is triggered automatically by the settings
-                // 'changed' signal handler watching 'date-range-preset'.
+                // The settings 'changed' handler routes date-range-preset
+                // through _quickReprocess (no IO) since the cache is unaffected.
             });
             this._dateButtons[preset.id] = btn;
             dateButtonRow.add_child(btn);
@@ -492,13 +536,23 @@ class CodeUsageIndicator extends PanelMenu.Button {
         }
     }
 
+    _currentIntervalSeconds() {
+        const key = this._intervalState === 'active'
+            ? 'active-refresh-interval'
+            : 'idle-refresh-interval';
+        // Defensive lower bound: a 0/negative value would loop the timer
+        // hot. Clamp to 1s; the schema's range constraints normally prevent
+        // anything pathological from reaching here.
+        return Math.max(1, this._settings.get_int(key));
+    }
+
     _startTimer() {
-        const interval = this._settings.get_int('refresh-interval');
+        const interval = this._currentIntervalSeconds();
         this._timerId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
             interval,
             () => {
-                this._refreshUsage();
+                this._fullRefresh();
                 return GLib.SOURCE_CONTINUE;
             }
         );
@@ -516,26 +570,63 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._startTimer();
     }
 
-    async _refreshUsage() {
-        if (this._refreshing) return;
+    /**
+     * After every scan, decide whether the agent has been "actively" writing
+     * recently (within IDLE_THRESHOLD_MS) or is idle, and switch the timer
+     * cadence if needed. Called from _fullRefresh after scanAndDiff completes
+     * so it sees the freshest mtime data.
+     */
+    _reconcileTimerState() {
+        const sinceActivityMs = Date.now() - this._lastActivityAt;
+        const newState = sinceActivityMs < IDLE_THRESHOLD_MS ? 'active' : 'idle';
+        if (newState === this._intervalState) return;
+
+        const oldInterval = this._currentIntervalSeconds();
+        this._intervalState = newState;
+        const newInterval = this._currentIntervalSeconds();
+        if (this._settings.get_boolean('debug-mode')) {
+            console.log(`Code Usage: interval ${oldInterval}s -> ${newInterval}s (${newState})`);
+        }
+        this._restartTimer();
+    }
+
+    async _fullRefresh({ showPlaceholder = false } = {}) {
+        const generation = ++this._refreshGeneration;
+        if (this._refreshing) {
+            this._refreshQueued = true;
+            this._queuedShowPlaceholder = this._queuedShowPlaceholder || showPlaceholder;
+            return;
+        }
         this._refreshing = true;
 
-        // Show a loading placeholder on every visible chip.
-        for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
-            chip._label.set_text('...');
+        // Only show "..." when the user explicitly requested a refresh or
+        // when the panel has not displayed any data yet. Auto ticks that
+        // hit the cache and produce no UI change should never flicker.
+        const showLoader = showPlaceholder || this._lastData === null;
+        if (showLoader) {
+            for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
+                chip._label.set_text('...');
+            }
+            this._refreshButton.add_style_pseudo_class('active');
         }
-        this._refreshButton.add_style_pseudo_class('active');
 
         try {
             const agents = this._settings.get_strv('selected-agents');
             if (agents.length === 0) {
-                this._lastData = this._processor.processEntries([]);
+                this._dataSource.clearCache();
+                this._lastActivityAt = 0;
             } else {
-                const entries = await this._dataSource.fetchMultiAgentData(agents);
-                this._lastData = this._processor.processEntries(entries);
+                const result = await this._dataSource.scanAndDiff(agents);
+                if (generation !== this._refreshGeneration) return;
+                if (result && typeof result.lastActivityAt === 'number') {
+                    this._lastActivityAt = result.lastActivityAt;
+                }
             }
-            this._updateDisplay(this._lastData);
+            if (generation !== this._refreshGeneration) return;
+            this._reconcileTimerState();
+            this._renderFromCache();
         } catch (e) {
+            if (generation !== this._refreshGeneration) return;
             console.error(`Code Usage: Refresh failed: ${e.message}`);
             const errText = _('错误');
             for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
@@ -547,7 +638,39 @@ class CodeUsageIndicator extends PanelMenu.Button {
         } finally {
             this._refreshing = false;
             this._refreshButton.remove_style_pseudo_class('active');
+            if (this._refreshQueued) {
+                const queuedShowPlaceholder = this._queuedShowPlaceholder;
+                this._refreshQueued = false;
+                this._queuedShowPlaceholder = false;
+                this._fullRefresh({ showPlaceholder: queuedShowPlaceholder });
+            }
         }
+    }
+
+    /**
+     * Re-run DataProcessor against the cached entries with the current
+     * settings, then rerender. This is the path taken when the user
+     * changes a presentation-only setting (currency, sort, date range,
+     * pricing overrides, etc.) — no file IO at all.
+     */
+    _quickReprocess() {
+        try {
+            this._renderFromCache();
+        } catch (e) {
+            console.error(`Code Usage: Reprocess failed: ${e.message}`);
+        }
+    }
+
+    /**
+     * Pull the current entries snapshot from the cache, run it through
+     * DataProcessor, and update the UI. Used by both _fullRefresh (after
+     * scanning) and _quickReprocess (settings-only path).
+     */
+    _renderFromCache() {
+        const agents = this._settings.get_strv('selected-agents');
+        const entries = agents.length === 0 ? [] : this._dataSource.getEntries();
+        this._lastData = this._processor.processEntries(entries);
+        this._updateDisplay(this._lastData);
     }
 
     _updatePanelLabel(data) {
@@ -570,7 +693,15 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _updateModelList(data) {
         this._modelListData = data.modelStats || [];
-        this._renderModelList();
+        // _renderModelList rebuilds dozens of St widgets; skip it while the
+        // popup menu is closed (the cards are not visible anyway). The dirty
+        // flag tells the menu open-state handler to render on next open.
+        if (this.menu.isOpen) {
+            this._renderModelList();
+            this._modelListDirty = false;
+        } else {
+            this._modelListDirty = true;
+        }
     }
 
     _renderModelList() {
@@ -802,6 +933,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     destroy() {
         this._stopTimer();
+        if (this._menuOpenStateId) {
+            try { this.menu.disconnect(this._menuOpenStateId); } catch (_e) { /* ignore */ }
+            this._menuOpenStateId = null;
+        }
         Main.panel.menuManager.removeMenu(this.menu);
         if (this._settingsChangedId) {
             this._settings.disconnect(this._settingsChangedId);
