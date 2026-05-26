@@ -3,6 +3,7 @@ import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
+import Pango from 'gi://Pango';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -16,6 +17,70 @@ let _ = (s) => s;
 
 export function setGettext(fn) {
     _ = fn;
+}
+
+/**
+ * Create a single-line St.Label with end-ellipsis truncation.
+ * The label will shrink to its allocated width and show '…' when text overflows.
+ */
+function _makeEllipsizedLabel(params = {}) {
+    const label = new St.Label(params);
+    label.clutter_text.set_single_line_mode(true);
+    label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
+    return label;
+}
+
+/**
+ * Attach a hover tooltip to an actor. The tooltip is added to Main.layoutManager
+ * as chrome so it can render above the popup menu. The tooltip is only shown
+ * when the predicate `shouldShow()` returns true (e.g. only when the label is
+ * actually ellipsized).
+ *
+ * The tooltip is automatically destroyed when the actor leaves hover or is
+ * destroyed. Returns nothing; cleanup is handled internally.
+ */
+function _attachHoverTooltip(actor, getText, shouldShow) {
+    actor.reactive = true;
+    actor.track_hover = true;
+
+    let tooltip = null;
+    const removeTooltip = () => {
+        if (tooltip) {
+            tooltip.destroy();
+            tooltip = null;
+        }
+    };
+
+    const hoverId = actor.connect('notify::hover', () => {
+        if (actor.hover) {
+            if (tooltip) return;
+            if (shouldShow && !shouldShow()) return;
+            const text = getText();
+            if (!text) return;
+
+            tooltip = new St.Label({
+                style_class: 'cu-tooltip',
+                text: text,
+            });
+            Main.layoutManager.addChrome(tooltip);
+
+            const [x, y] = actor.get_transformed_position();
+            const actorH = actor.get_height();
+            // Place tooltip just below the actor, slightly indented from left edge.
+            const tx = Math.round(x);
+            const ty = Math.round(y + actorH + 2);
+            tooltip.set_position(tx, ty);
+        } else {
+            removeTooltip();
+        }
+    });
+
+    actor.connect('destroy', () => {
+        if (hoverId) {
+            try { actor.disconnect(hoverId); } catch (_e) { /* ignore */ }
+        }
+        removeTooltip();
+    });
 }
 
 const DATE_PRESETS = [
@@ -142,6 +207,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const heroBox = new St.BoxLayout({
             style_class: 'cu-hero-box',
             vertical: true,
+            x_expand: true,
         });
 
         const heroHeader = new St.BoxLayout({ vertical: false, x_expand: true });
@@ -189,6 +255,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const statsRow = new St.BoxLayout({
             style_class: 'cu-stats-row',
             vertical: false,
+            x_expand: true,
         });
 
         this._requestCountCard = this._createStatCard(_('请求数'), '0', 'cu-stat-requests');
@@ -212,6 +279,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const modelSectionBox = new St.BoxLayout({
             style_class: 'cu-model-section',
             vertical: true,
+            x_expand: true,
         });
         const modelTitle = new St.Label({
             text: _('模型'),
@@ -222,6 +290,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._modelListContainer = new St.BoxLayout({
             style_class: 'cu-model-list',
             vertical: true,
+            x_expand: true,
         });
         modelSectionBox.add_child(this._modelListContainer);
 
@@ -298,9 +367,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const dateBox = new St.BoxLayout({
             style_class: 'cu-date-section',
             vertical: true,
+            x_expand: true,
         });
 
-        const dateHeader = new St.BoxLayout({ vertical: false });
+        const dateHeader = new St.BoxLayout({ vertical: false, x_expand: true });
         const dateTitle = new St.Label({
             text: _('日期范围'),
             style_class: 'cu-section-title',
@@ -311,6 +381,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const dateButtonRow = new St.BoxLayout({
             style_class: 'cu-date-button-row',
             vertical: false,
+            x_expand: true,
         });
 
         this._dateButtons = {};
@@ -322,9 +393,21 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 label: preset.label,
             });
             btn.connect('clicked', () => {
+                const currentPreset = this._settings.get_string('date-range-preset');
+                if (preset.id === currentPreset) {
+                    // Clicking the already-active range is a no-op: don't reset
+                    // pagination state and don't trigger a refresh.
+                    return;
+                }
+                // Reset model list to collapsed first page so the new range
+                // always starts from a clean state, even if the new dataset
+                // would have fewer pages than the current page index.
+                this._modelExpanded = false;
+                this._modelPage = 0;
                 this._settings.set_string('date-range-preset', preset.id);
                 this._updateDateButtonStyles();
-                this._refreshUsage();
+                // _refreshUsage is triggered automatically by the settings
+                // 'changed' signal handler watching 'date-range-preset'.
             });
             this._dateButtons[preset.id] = btn;
             dateButtonRow.add_child(btn);
@@ -350,12 +433,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const value = new St.Label({
             text: valueText,
             style_class: 'cu-stat-value',
-            x_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.START,
         });
         const label = new St.Label({
             text: labelText,
             style_class: 'cu-stat-label',
-            x_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.START,
         });
         card.add_child(value);
         card.add_child(label);
@@ -487,6 +570,13 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const models = this._modelListData;
         const expanded = this._modelExpanded;
         const pageSize = expanded ? 10 : 5;
+        // Defensive clamp: if the dataset has shrunk (e.g. agent filter or
+        // sort order changed) and the stored page index would be empty,
+        // fall back to the first page.
+        const totalPagesAvailable = Math.max(1, Math.ceil(models.length / pageSize));
+        if (this._modelPage >= totalPagesAvailable) {
+            this._modelPage = 0;
+        }
         const page = expanded ? this._modelPage : 0;
         const start = page * pageSize;
         const end = Math.min(start + pageSize, models.length);
@@ -496,11 +586,13 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const card = new St.BoxLayout({
                 style_class: 'cu-model-card',
                 vertical: true,
+                x_expand: true,
             });
 
             const headerRow = new St.BoxLayout({
                 style_class: 'cu-model-header-row',
                 vertical: false,
+                x_expand: true,
             });
 
             const agentColor = AGENT_BRAND_COLORS[ms.agent] || '#3584e4';
@@ -512,11 +604,26 @@ class CodeUsageIndicator extends PanelMenu.Button {
             agentTag.set_style(`background-color: ${agentColor}; color: ${agentTextColor};`);
             headerRow.add_child(agentTag);
 
-            const name = new St.Label({
-                text: ms.displayName || ms.model,
+            const fullName = ms.displayName || ms.model;
+            const name = _makeEllipsizedLabel({
+                text: fullName,
                 style_class: 'cu-model-name',
                 x_expand: true,
+                y_align: Clutter.ActorAlign.CENTER,
             });
+            _attachHoverTooltip(
+                name,
+                () => fullName,
+                () => {
+                    // Only show tooltip if the text is actually ellipsized.
+                    const layout = name.clutter_text.get_layout();
+                    if (layout && typeof layout.is_ellipsized === 'function') {
+                        return layout.is_ellipsized();
+                    }
+                    // Fallback: show if text is reasonably long.
+                    return fullName.length > 18;
+                }
+            );
             headerRow.add_child(name);
 
             const cost = new St.Label({
@@ -534,10 +641,18 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const progressBar = new St.Widget({
                 style_class: 'cu-model-progress-bar',
             });
-            const barWidth = Math.round(ms.percentage * 200);
-            progressBar.set_width(Math.max(barWidth, 4));
             progressBg.add_child(progressBar);
             card.add_child(progressBg);
+
+            // Render the cost-share bar dynamically based on the actual bg width
+            // so a 100% ratio fills the entire card width.
+            const updateCostBar = () => {
+                const w = progressBg.get_width();
+                if (w > 0) {
+                    progressBar.set_width(Math.max(Math.round(ms.percentage * w), 2));
+                }
+            };
+            progressBg.connect('notify::width', updateCostBar);
 
             const cacheProgressBg = new St.Widget({
                 style_class: 'cu-model-progress-bg cu-model-cache-progress-bg',
@@ -546,10 +661,18 @@ class CodeUsageIndicator extends PanelMenu.Button {
             const cacheProgressBar = new St.Widget({
                 style_class: 'cu-model-progress-bar cu-model-cache-progress-bar',
             });
-            const cacheBarWidth = Math.round(ms.cacheHitRate * 200);
-            cacheProgressBar.set_width(Math.max(cacheBarWidth, 2));
             cacheProgressBg.add_child(cacheProgressBar);
             card.add_child(cacheProgressBg);
+
+            // Same dynamic sizing for the cache hit-rate bar so the visual
+            // length matches the displayed percentage text.
+            const updateCacheBar = () => {
+                const w = cacheProgressBg.get_width();
+                if (w > 0) {
+                    cacheProgressBar.set_width(Math.max(Math.round(ms.cacheHitRate * w), 2));
+                }
+            };
+            cacheProgressBg.connect('notify::width', updateCacheBar);
 
             const detailRow1 = new St.BoxLayout({
                 style_class: 'cu-model-detail-row',
@@ -557,23 +680,23 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 x_expand: true,
             });
 
-            const row1Col1 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
-            const row1Col2 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
-            const row1Col3 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row1Col1 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row1Col2 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row1Col3 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.END });
 
-            const inputLbl = new St.Label({
+            const inputLbl = _makeEllipsizedLabel({
                 text: `${_('输入')} ${ms.inputTokensFormatted}`,
                 style_class: 'cu-token-input',
             });
             row1Col1.add_child(inputLbl);
 
-            const outputLbl = new St.Label({
+            const outputLbl = _makeEllipsizedLabel({
                 text: `${_('输出')} ${ms.outputTokensFormatted}`,
                 style_class: 'cu-token-output',
             });
             row1Col2.add_child(outputLbl);
 
-            const cacheReadLbl = new St.Label({
+            const cacheReadLbl = _makeEllipsizedLabel({
                 text: `${_('缓存读')} ${ms.cacheReadTokensFormatted}`,
                 style_class: 'cu-token-cache-read',
             });
@@ -590,23 +713,23 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 x_expand: true,
             });
 
-            const row2Col1 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
-            const row2Col2 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
-            const row2Col3 = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row2Col1 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row2Col2 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.START });
+            const row2Col3 = new St.BoxLayout({ style_class: 'cu-model-detail-col', x_expand: true, x_align: Clutter.ActorAlign.END });
 
-            const hitRateLbl = new St.Label({
-                text: `${_('命中率')} ${ms.cacheHitRateFormatted}`,
+            const hitRateLbl = _makeEllipsizedLabel({
+                text: `${_('命中')} ${ms.cacheHitRateFormatted}`,
                 style_class: 'cu-token-cache-hit',
             });
             row2Col1.add_child(hitRateLbl);
 
-            const totalLbl = new St.Label({
+            const totalLbl = _makeEllipsizedLabel({
                 text: `${_('总量')} ${ms.totalTokensFormatted}`,
                 style_class: 'cu-token-total',
             });
             row2Col2.add_child(totalLbl);
 
-            const requestsLbl = new St.Label({
+            const requestsLbl = _makeEllipsizedLabel({
                 text: `${_('请求数')} ${ms.requestCount}`,
                 style_class: 'cu-token-requests',
             });

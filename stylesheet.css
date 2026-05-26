@@ -33,6 +33,7 @@
     padding: 8px 0;
     spacing: 8px;
     min-width: 280px;
+    max-width: 340px;
 }
 
 .cu-stats-row {
@@ -42,6 +43,7 @@
 .cu-stat-card {
     border-radius: 8px;
     padding: 8px 10px;
+    padding-left: 14px;
     spacing: 2px;
 }
 
@@ -101,6 +103,7 @@
     padding: 4px 0;
     spacing: 4px;
     min-width: 280px;
+    max-width: 340px;
 }
 
 .cu-model-list {
@@ -168,6 +171,17 @@
     spacing: 4px;
 }
 
+/* Hover tooltip displayed above the popup chrome layer */
+.cu-tooltip {
+    background-color: rgba(20, 20, 20, 0.92);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 6px;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .cu-model-header-row {
     spacing: 6px;
 }
@@ -214,14 +228,18 @@
 }
 
 .cu-model-detail-row {
-    spacing: 8px;
+    spacing: 4px;
+}
+
+.cu-model-detail-col {
+    min-width: 90px;
 }
 
 /* Token labels - bold and modern color palette */
 .cu-token-input {
     font-size: 10px;
     font-weight: 700;
-    color: #5B8DEF;
+    color: #FF375F;
 }
 
 .cu-token-output {
@@ -245,7 +263,7 @@
 .cu-token-cache-hit {
     font-size: 10px;
     font-weight: 700;
-    color: #FF375F;
+    color: #5B8DEF;
 }
 
 .cu-token-total {
