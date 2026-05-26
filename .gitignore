@@ -12,5 +12,5 @@ schemas/gschemas.compiled
 .DS_Store
 Thumbs.db
 
-# Customer release artifacts
+# Release artifacts
 dist/

@@ -26,7 +26,7 @@ cp stylesheet.css "$STAGING_DIR/"
 cp metadata.json "$STAGING_DIR/"
 cp install.sh "$STAGING_DIR/"
 cp LICENSE "$STAGING_DIR/"
-cp README_CUSTOMER.md "$STAGING_DIR/README.md"
+cp README_RELEASE.md "$STAGING_DIR/README.md"
 
 cp modules/*.js "$STAGING_DIR/modules/"
 cp icons/* "$STAGING_DIR/icons/"

@@ -8,7 +8,7 @@
 - 弹出菜单展示总览、模型明细、缓存命中率和日期范围筛选。
 - 支持活跃/空闲自适应刷新，减少无日志写入时的轮询开销。
 - 支持多种 Token 显示格式、CNY/USD 费用显示和自定义模型价格。
-- 提供客户交付打包脚本，可生成最小可安装扩展包。
+- 提供发布包脚本，可生成最小可安装扩展包。
 
 ## 支持的数据源
 
@@ -38,12 +38,12 @@ gnome-extensions enable code-usage@gnome-extensions.local
 
 也可以使用系统的“扩展”应用手动启用。
 
-## 客户交付包
+## 发布包
 
-生成最小可安装交付包：
+生成最小可安装发布包：
 
 ```bash
-./package-customer.sh
+./release-package.sh
 ```
 
 生成结果位于：
@@ -52,7 +52,7 @@ gnome-extensions enable code-usage@gnome-extensions.local
 dist/code-usage-extension-v1.zip
 ```
 
-交付包只包含运行时文件、安装脚本、许可文件和客户说明，不包含 `.git/`、`github/` 参考资料、翻译源文件或开发产物。
+发布包只包含运行时文件、安装脚本、许可文件和安装说明，不包含 `.git/`、`github/` 参考资料、翻译源文件或开发产物。
 
 ## 配置
 
