@@ -110,31 +110,22 @@ class CodeUsageIndicator extends PanelMenu.Button {
             style_class: 'cu-panel-status-box',
         });
 
-        const iconPath = GLib.build_filenamev([this._extensionPath, 'icons', 'code-usage-symbolic.svg']);
-        const gicon = this._loadIcon(iconPath);
-        this._icon = new St.Icon({
-            gicon: gicon,
-            style_class: 'cu-panel-icon',
-            icon_size: 16,
-        });
-        this._box.add_child(this._icon);
+        // Build per-metric chips: [icon] + [label]. Each chip is shown/hidden
+        // based on display-mode. All three icons come from the system theme,
+        // so they follow the user's icon style automatically. Cost has no
+        // single guaranteed name in standard Adwaita, so it uses a fallback
+        // chain — preferring a money emblem when present, otherwise the
+        // calculator icon which is always available.
+        this._tokenChip = this._createMetricChip('text-x-generic-symbolic', 'cu-chip-tokens');
+        this._costChip = this._createMetricChip(
+            ['emblem-money-symbolic', 'accessories-calculator-symbolic'],
+            'cu-chip-cost'
+        );
+        this._requestsChip = this._createMetricChip('network-transmit-receive-symbolic', 'cu-chip-requests');
 
-        this._panelProgressBg = new St.Widget({
-            style_class: 'cu-panel-progress-bg',
-            y_align: Clutter.ActorAlign.CENTER,
-        });
-        this._panelProgressBar = new St.Widget({
-            style_class: 'cu-panel-progress-bar cu-usage-low',
-        });
-        this._panelProgressBg.add_child(this._panelProgressBar);
-        this._box.add_child(this._panelProgressBg);
-
-        this._label = new St.Label({
-            text: '...',
-            y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'cu-panel-label',
-        });
-        this._box.add_child(this._label);
+        this._box.add_child(this._tokenChip);
+        this._box.add_child(this._costChip);
+        this._box.add_child(this._requestsChip);
 
         this.add_child(this._box);
 
@@ -173,21 +164,63 @@ class CodeUsageIndicator extends PanelMenu.Button {
         return Gio.ThemedIcon.new('utilities-system-monitor-symbolic');
     }
 
+    /**
+     * Build a "metric chip" actor consisting of an icon followed by a value
+     * label. Each chip is independently shown/hidden based on display-mode,
+     * and its icon visibility is controlled by the show-icon setting.
+     *
+     * `iconSpec` accepts:
+     *  - a themed icon name string (e.g. 'text-x-generic-symbolic')
+     *  - an array of names as a fallback chain — useful when the preferred
+     *    name isn't guaranteed to exist in every icon theme; the first
+     *    name found in the active theme wins.
+     *  - a relative SVG file name ending in '.svg' (resolved under icons/).
+     */
+    _createMetricChip(iconSpec, extraStyleClass) {
+        const chip = new St.BoxLayout({
+            style_class: `cu-panel-chip ${extraStyleClass}`,
+        });
+
+        const iconProps = {
+            style_class: 'cu-panel-icon',
+            icon_size: 16,
+            y_align: Clutter.ActorAlign.CENTER,
+        };
+        if (Array.isArray(iconSpec)) {
+            iconProps.gicon = Gio.ThemedIcon.new_from_names(iconSpec);
+        } else if (iconSpec.endsWith('.svg')) {
+            const iconPath = GLib.build_filenamev([this._extensionPath, 'icons', iconSpec]);
+            iconProps.gicon = this._loadIcon(iconPath);
+        } else {
+            iconProps.icon_name = iconSpec;
+        }
+        const icon = new St.Icon(iconProps);
+        chip.add_child(icon);
+
+        const label = new St.Label({
+            text: '...',
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'cu-panel-label',
+        });
+        chip.add_child(label);
+
+        chip._icon = icon;
+        chip._label = label;
+        return chip;
+    }
+
     _updateDisplayMode() {
         const mode = this._settings.get_string('display-mode');
-        if (mode === 'bar') {
-            this._panelProgressBg.show();
-            this._label.hide();
-            this._label.set_style('margin-left: 0;');
-        } else if (mode === 'both') {
-            this._panelProgressBg.show();
-            this._label.show();
-            this._label.set_style('margin-left: 6px;');
-        } else {
-            this._panelProgressBg.hide();
-            this._label.show();
-            this._label.set_style('margin-left: 0;');
-        }
+        // 'all' / legacy 'both' show all three chips. Each named single mode
+        // shows only its own chip. Unknown values (including legacy 'bar')
+        // fall back to tokens-only.
+        const showAll = (mode === 'all' || mode === 'both');
+        const named = mode === 'tokens' || mode === 'cost' || mode === 'requests';
+        const fallbackTokens = !showAll && !named;
+
+        this._tokenChip.visible = showAll || mode === 'tokens' || fallbackTokens;
+        this._costChip.visible = showAll || mode === 'cost';
+        this._requestsChip.visible = showAll || mode === 'requests';
 
         if (this._lastData) {
             this._updatePanelLabel(this._lastData);
@@ -196,10 +229,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _updateIconVisibility() {
         const showIcon = this._settings.get_boolean('show-icon');
-        if (showIcon) {
-            this._icon.show();
-        } else {
-            this._icon.hide();
+        for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
+            if (showIcon) {
+                chip._icon.show();
+            } else {
+                chip._icon.hide();
+            }
         }
     }
 
@@ -485,7 +520,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
         if (this._refreshing) return;
         this._refreshing = true;
 
-        this._label.set_text('...');
+        // Show a loading placeholder on every visible chip.
+        for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
+            chip._label.set_text('...');
+        }
         this._refreshButton.add_style_pseudo_class('active');
 
         try {
@@ -499,7 +537,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
             this._updateDisplay(this._lastData);
         } catch (e) {
             console.error(`Code Usage: Refresh failed: ${e.message}`);
-            this._label.set_text(_('错误'));
+            const errText = _('错误');
+            for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
+                chip._label.set_text(errText);
+            }
             this._requestCountCard._valueLabel.set_text('-');
             this._tokenCountCard._valueLabel.set_text('-');
             this._costCard._valueLabel.set_text('-');
@@ -510,40 +551,11 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     _updatePanelLabel(data) {
-        const mode = this._settings.get_string('display-mode');
-
-        if (mode === 'both') {
-            this._label.set_text(`${data.totalRealTokensFormatted} · ${data.totalCostFormatted}`);
-        } else if (mode === 'cost') {
-            this._label.set_text(data.totalCostFormatted);
-        } else {
-            this._label.set_text(data.totalRealTokensFormatted);
-        }
-
-        this._updatePanelProgressBar(data);
-    }
-
-    _updatePanelProgressBar(data) {
-        const maxWidth = 50;
-        const maxForBar = Math.max(100000, data.totalRealTokens || 1);
-        const width = Math.round((Math.min(data.totalRealTokens || 0, maxForBar) / maxForBar) * maxWidth);
-        this._panelProgressBar.set_width(Math.max(width, 2));
-
-        this._panelProgressBar.remove_style_class_name('cu-usage-low');
-        this._panelProgressBar.remove_style_class_name('cu-usage-medium');
-        this._panelProgressBar.remove_style_class_name('cu-usage-high');
-        this._panelProgressBar.remove_style_class_name('cu-usage-critical');
-
-        const ratio = data.cacheHitRate || 0;
-        if (ratio >= 0.9) {
-            this._panelProgressBar.add_style_class_name('cu-usage-critical');
-        } else if (ratio >= 0.7) {
-            this._panelProgressBar.add_style_class_name('cu-usage-high');
-        } else if (ratio >= 0.4) {
-            this._panelProgressBar.add_style_class_name('cu-usage-medium');
-        } else {
-            this._panelProgressBar.add_style_class_name('cu-usage-low');
-        }
+        // Each chip independently displays its own metric so the values stay
+        // aligned with their icons regardless of which chips are visible.
+        this._tokenChip._label.set_text(data.totalRealTokensFormatted);
+        this._costChip._label.set_text(data.totalCostFormatted);
+        this._requestsChip._label.set_text(String(data.totalRequests));
     }
 
     _updateDisplay(data) {

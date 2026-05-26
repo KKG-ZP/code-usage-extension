@@ -9,7 +9,7 @@
     <key name="display-mode" type="s">
       <default>'tokens'</default>
       <summary>面板显示模式</summary>
-      <description>面板显示内容：'tokens' 显示 Token 数，'cost' 显示费用，'both' 显示两者</description>
+      <description>面板显示内容：'tokens' 显示 Token 数，'cost' 显示费用，'requests' 显示请求数，'all' 显示三者。'both' 为旧值，等价于 'all'。</description>
     </key>
     <key name="show-icon" type="b">
       <default>true</default>

@@ -67,16 +67,23 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         const displayModeModel = new Gtk.StringList();
         displayModeModel.append(_('Token 数'));
         displayModeModel.append(_('费用'));
-        displayModeModel.append(_('两者'));
+        displayModeModel.append(_('请求数'));
+        displayModeModel.append(_('全部'));
         displayModeRow.set_model(displayModeModel);
 
         const currentMode = settings.get_string('display-mode');
-        const modeIndex = currentMode === 'cost' ? 1 : currentMode === 'both' ? 2 : 0;
+        // 'both' is the legacy value (originally tokens+cost). It now maps
+        // to 'all' (tokens · cost · requests) so existing users get the
+        // expanded composite display without losing their selection.
+        const modeIndex = currentMode === 'cost' ? 1
+            : currentMode === 'requests' ? 2
+            : (currentMode === 'all' || currentMode === 'both') ? 3
+            : 0;
         displayModeRow.set_selected(modeIndex);
 
         displayModeRow.connect('notify::selected', () => {
             const selected = displayModeRow.get_selected();
-            const modes = ['tokens', 'cost', 'both'];
+            const modes = ['tokens', 'cost', 'requests', 'all'];
             settings.set_string('display-mode', modes[selected]);
         });
         displayGroup.add(displayModeRow);
