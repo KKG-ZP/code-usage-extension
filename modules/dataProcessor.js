@@ -137,7 +137,7 @@ export class DataProcessor {
             modelStats: modelList.map(m => ({
                 ...m,
                 totalTokens: m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens,
-                percentage: maxModelCost > 0 ? m.totalCost / maxModelCost : 0,
+                percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
                 totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
                 inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
                 outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
