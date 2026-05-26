@@ -470,16 +470,21 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
             subtitle: _('选择 Token 数量的显示方式'),
         });
         const tokenFormatModel = new Gtk.StringList();
-        tokenFormatModel.append(_('自动（K/M 缩写）'));
+        tokenFormatModel.append(_('自动（K/M/B 缩写）'));
         tokenFormatModel.append(_('始终使用 K'));
         tokenFormatModel.append(_('始终使用 M'));
+        tokenFormatModel.append(_('始终使用 B'));
         tokenFormatModel.append(_('原始数值'));
         tokenFormatRow.set_model(tokenFormatModel);
         const currentFormat = settings.get_string('token-display-format');
-        const formatIndex = currentFormat === 'K' ? 1 : currentFormat === 'M' ? 2 : currentFormat === 'raw' ? 3 : 0;
+        const formatIndex = currentFormat === 'K' ? 1
+            : currentFormat === 'M' ? 2
+            : currentFormat === 'B' ? 3
+            : currentFormat === 'raw' ? 4
+            : 0;
         tokenFormatRow.set_selected(formatIndex);
         tokenFormatRow.connect('notify::selected', () => {
-            const formats = ['auto', 'K', 'M', 'raw'];
+            const formats = ['auto', 'K', 'M', 'B', 'raw'];
             settings.set_string('token-display-format', formats[tokenFormatRow.get_selected()]);
         });
         displayGroup.add(tokenFormatRow);

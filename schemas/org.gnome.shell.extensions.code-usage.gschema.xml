@@ -64,7 +64,7 @@
     <key name="token-display-format" type="s">
       <default>'auto'</default>
       <summary>Token 显示格式</summary>
-      <description>Token 数量显示格式：auto（自动缩写）、K、M、raw（原始数值）</description>
+      <description>Token 数量显示格式：auto（自动缩写）、K、M、B、raw（原始数值）</description>
     </key>
     <key name="debug-mode" type="b">
       <default>false</default>

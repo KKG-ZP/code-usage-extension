@@ -67,6 +67,8 @@ export function formatTokens(tokens, format = 'auto') {
     if (format === 'raw') return tokens.toLocaleString();
     if (format === 'K') return `${(tokens / 1_000).toFixed(1)}K`;
     if (format === 'M') return `${(tokens / 1_000_000).toFixed(1)}M`;
+    if (format === 'B') return `${(tokens / 1_000_000_000).toFixed(1)}B`;
+    if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
     if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
     if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
     return tokens.toLocaleString();
