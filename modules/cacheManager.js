@@ -13,16 +13,20 @@
 // Task 2 will add incremental jsonl reads (offset + pendingTail). Task 3
 // will harden the SQLite path with WAL/SHM mtime tracking and result reuse.
 
-import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
+const ByteArray = imports.byteArray;
+const Parsers = imports.misc.extensionUtils.getCurrentExtension().imports.modules.parsers;
+const parseGeminiFile = Parsers.parseGeminiFile;
+const parseAmpFile = Parsers.parseAmpFile;
+const parseCodeBuffFile = Parsers.parseCodeBuffFile;
+const parseSQLiteAgent = Parsers.parseSQLiteAgent;
 
-import {
-    parseGeminiFile, parseAmpFile, parseCodeBuffFile, parseSQLiteAgent,
-} from './parsers.js';
+var IDLE_THRESHOLD_MS = 120 * 1000;
 
-export const IDLE_THRESHOLD_MS = 120 * 1000;
-
-const TEXT_DECODER = new TextDecoder('utf-8');
+function _decodeBytes(bytes) {
+    return ByteArray.toString(bytes);
+}
 
 /**
  * Classify an agent config into one of three IO strategies. The classification
@@ -42,7 +46,7 @@ function _classifyAgent(config) {
     return 'jsonl';
 }
 
-export class FileCacheManager {
+var FileCacheManager = class FileCacheManager {
     constructor(settings, agentConfigs) {
         this._settings = settings;
         this._agentConfigs = agentConfigs;
@@ -338,7 +342,7 @@ export class FileCacheManager {
             const [ok, contents] = file.load_contents(null);
             if (!ok) return { text: '', byteLength: 0 };
             return {
-                text: TEXT_DECODER.decode(contents),
+                text: _decodeBytes(contents),
                 byteLength: contents.length,
             };
         } catch (e) {
@@ -396,8 +400,8 @@ export class FileCacheManager {
                     stream.skip(cached.offset, null);
                 }
                 const bytes = stream.read_bytes(newBytes, null);
-                const data = bytes.toArray();
-                newText = TEXT_DECODER.decode(data);
+                const data = bytes.get_data();
+                newText = _decodeBytes(data);
             } finally {
                 try { stream.close(null); } catch (_e) { /* ignore */ }
             }

@@ -1,13 +1,14 @@
 // Ported from cc-switch pricing resolution logic
 // Multi-step model matching: exact → namespace strip → date strip → reasoning strip → prefix → fallback
 
-import { DEFAULT_PRICING } from './defaultPricing.js';
+const DefaultPricing = imports.misc.extensionUtils.getCurrentExtension().imports.modules.defaultPricing;
+const DEFAULT_PRICING = DefaultPricing.DEFAULT_PRICING;
 
 const NAMESPACE_PREFIXES = ['openai', 'anthropic', 'bedrock', 'vertex', 'gitcorp', 'azure'];
 const DATE_SUFFIX_PATTERN = /-\d{8}$/;
 const REASONING_SUFFIXES = ['-low', '-medium', '-high', '-xhigh', '-minimal'];
 
-export function resolvePricing(modelId, requestModel = null, overrides = {}) {
+function resolvePricing(modelId, requestModel = null, overrides = {}) {
     if (!modelId) return null;
 
     const allPricing = { ...DEFAULT_PRICING, ...overrides };
@@ -65,7 +66,14 @@ export function resolvePricing(modelId, requestModel = null, overrides = {}) {
     return null;
 }
 
-export function getPricingForModel(modelId, requestModel = null, overridesJson = '{}') {
+function _firstDefined(values, fallback) {
+    for (const value of values) {
+        if (value !== undefined && value !== null) return value;
+    }
+    return fallback;
+}
+
+function getPricingForModel(modelId, requestModel = null, overridesJson = '{}') {
     let overrides = {};
     try {
         overrides = JSON.parse(overridesJson);
@@ -77,9 +85,9 @@ export function getPricingForModel(modelId, requestModel = null, overridesJson =
     if (!pricing) return null;
 
     return {
-        input: pricing.input ?? pricing.inputCostPerMillion ?? 0,
-        output: pricing.output ?? pricing.outputCostPerMillion ?? 0,
-        cacheRead: pricing.cacheRead ?? pricing.cacheReadCostPerMillion ?? 0,
-        cacheWrite: pricing.cacheWrite ?? pricing.cacheCreationCostPerMillion ?? pricing.cacheWriteCostPerMillion ?? 0,
+        input: _firstDefined([pricing.input, pricing.inputCostPerMillion], 0),
+        output: _firstDefined([pricing.output, pricing.outputCostPerMillion], 0),
+        cacheRead: _firstDefined([pricing.cacheRead, pricing.cacheReadCostPerMillion], 0),
+        cacheWrite: _firstDefined([pricing.cacheWrite, pricing.cacheCreationCostPerMillion, pricing.cacheWriteCostPerMillion], 0),
     };
 }

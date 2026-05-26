@@ -1,11 +1,12 @@
 // Ported from cc-switch src-tauri/src/proxy/usage/calculator.rs
 // Cost calculation with cache semantics handling
 
-import { CACHE_INCLUSIVE_APP_TYPES } from './defaultPricing.js';
+const DefaultPricing = imports.misc.extensionUtils.getCurrentExtension().imports.modules.defaultPricing;
+const CACHE_INCLUSIVE_APP_TYPES = DefaultPricing.CACHE_INCLUSIVE_APP_TYPES;
 
-const MILLION = 1_000_000;
+const MILLION = 1000000;
 
-export class CostCalculator {
+var CostCalculator = class CostCalculator {
     static calculate(usage, pricing, costMultiplier = 1.0) {
         return CostCalculator.calculateWithCacheSemantics(
             usage, pricing, costMultiplier, false
@@ -49,7 +50,7 @@ export class CostCalculator {
     }
 }
 
-export function formatCost(costUSD, currency = 'USD', exchangeRate = 7.25) {
+function formatCost(costUSD, currency = 'USD', exchangeRate = 7.25) {
     if (currency === 'CNY') {
         const cny = costUSD * exchangeRate;
         if (cny < 0.01) return '¥0.00';
@@ -63,18 +64,18 @@ export function formatCost(costUSD, currency = 'USD', exchangeRate = 7.25) {
     return `$${costUSD.toFixed(2)}`;
 }
 
-export function formatTokens(tokens, format = 'auto') {
+function formatTokens(tokens, format = 'auto') {
     if (format === 'raw') return tokens.toLocaleString();
-    if (format === 'K') return `${(tokens / 1_000).toFixed(1)}K`;
-    if (format === 'M') return `${(tokens / 1_000_000).toFixed(1)}M`;
-    if (format === 'B') return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-    if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-    if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+    if (format === 'K') return `${(tokens / 1000).toFixed(1)}K`;
+    if (format === 'M') return `${(tokens / 1000000).toFixed(1)}M`;
+    if (format === 'B') return `${(tokens / 1000000000).toFixed(1)}B`;
+    if (tokens >= 1000000000) return `${(tokens / 1000000000).toFixed(1)}B`;
+    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
     return tokens.toLocaleString();
 }
 
-export function calculateCacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens) {
+function calculateCacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens) {
     const denominator = inputTokens + cacheCreationTokens + cacheReadTokens;
     if (denominator === 0) return 0;
     return cacheReadTokens / denominator;

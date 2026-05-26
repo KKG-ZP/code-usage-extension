@@ -1,540 +1,244 @@
-import Adw from 'gi://Adw';
-import Gtk from 'gi://Gtk';
-import Gio from 'gi://Gio';
+const Gtk = imports.gi.Gtk;
+const Gio = imports.gi.Gio;
+const ExtensionUtils = imports.misc.extensionUtils;
+const Me = ExtensionUtils.getCurrentExtension();
+const DefaultPricing = Me.imports.modules.defaultPricing;
 
-import { ExtensionPreferences, gettext as _ } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
-import { DEFAULT_PRICING, SUPPORTED_AGENTS } from './modules/defaultPricing.js';
+const _ = ExtensionUtils.gettext;
+const SCHEMA_ID = 'org.gnome.shell.extensions.code-usage';
 
-export default class CodeUsagePreferences extends ExtensionPreferences {
-    fillPreferencesWindow(window) {
-        const settings = this.getSettings();
+function init() {
+    ExtensionUtils.initTranslations(Me.metadata['gettext-domain'] || Me.uuid);
+}
 
-        const page1 = new Adw.PreferencesPage({
-            title: _('通用'),
-            icon_name: 'preferences-system-symbolic',
+function _add(parent, child) {
+    if (parent.append) {
+        parent.append(child);
+    } else if (parent.add) {
+        parent.add(child);
+    } else if (parent.pack_start) {
+        parent.pack_start(child, false, false, 0);
+    }
+}
+
+function _setChild(parent, child) {
+    if (parent.set_child) {
+        parent.set_child(child);
+    } else {
+        parent.add(child);
+    }
+}
+
+function _setMargins(widget, value) {
+    widget.margin_top = value;
+    widget.margin_bottom = value;
+    widget.margin_start = value;
+    widget.margin_end = value;
+}
+
+function _box(orientation, spacing) {
+    return new Gtk.Box({ orientation, spacing });
+}
+
+function _label(text, options) {
+    options = options || {};
+    const label = new Gtk.Label({ label: text, xalign: 0 });
+    label.set_line_wrap(true);
+    if (options.bold) {
+        label.set_markup(`<b>${GLibMarkup.escape(text)}</b>`);
+    }
+    return label;
+}
+
+const GLibMarkup = {
+    escape(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    },
+};
+
+function _group(title, description) {
+    const frame = new Gtk.Frame();
+    if (frame.set_label) frame.set_label(title);
+    const inner = _box(Gtk.Orientation.VERTICAL, 10);
+    _setMargins(inner, 12);
+    if (description) {
+        const desc = _label(description);
+        if (desc.get_style_context) desc.get_style_context().add_class('dim-label');
+        _add(inner, desc);
+    }
+    _setChild(frame, inner);
+    return { frame, inner };
+}
+
+function _row(parent, title, subtitle, control) {
+    const row = _box(Gtk.Orientation.HORIZONTAL, 12);
+    _setMargins(row, 4);
+    const labels = _box(Gtk.Orientation.VERTICAL, 2);
+    labels.hexpand = true;
+    _add(labels, _label(title));
+    if (subtitle) {
+        const sub = _label(subtitle);
+        if (sub.get_style_context) sub.get_style_context().add_class('dim-label');
+        _add(labels, sub);
+    }
+    _add(row, labels);
+    if (control) _add(row, control);
+    _add(parent, row);
+    return row;
+}
+
+function _spin(settings, key, lower, upper, step, digits) {
+    const adjustment = new Gtk.Adjustment({
+        lower,
+        upper,
+        step_increment: step,
+        page_increment: step * 10,
+        value: settings.get_value(key).unpack(),
+    });
+    const spin = new Gtk.SpinButton({ adjustment, digits: digits || 0, numeric: true });
+    spin.set_value(settings.get_value(key).unpack());
+    spin.connect('value-changed', () => {
+        if (digits && digits > 0) settings.set_double(key, spin.get_value());
+        else settings.set_int(key, spin.get_value_as_int());
+    });
+    return spin;
+}
+
+function _switch(settings, key) {
+    const sw = new Gtk.Switch({ active: settings.get_boolean(key), valign: Gtk.Align.CENTER });
+    sw.connect('notify::active', () => settings.set_boolean(key, sw.active));
+    return sw;
+}
+
+function _entry(settings, key, placeholder) {
+    const entry = new Gtk.Entry({ text: settings.get_string(key), hexpand: false });
+    if (placeholder && entry.set_placeholder_text) entry.set_placeholder_text(placeholder);
+    entry.connect('changed', () => settings.set_string(key, entry.get_text()));
+    return entry;
+}
+
+function _choice(settings, key, choices) {
+    const current = settings.get_string(key);
+    let selected = choices.findIndex(c => c[0] === current);
+    if (selected < 0) selected = 0;
+
+    if (Gtk.DropDown && Gtk.StringList) {
+        const model = new Gtk.StringList();
+        choices.forEach(c => model.append(c[1]));
+        const dropdown = new Gtk.DropDown({ model, selected });
+        dropdown.connect('notify::selected', () => {
+            settings.set_string(key, choices[dropdown.get_selected()][0]);
         });
-        window.add(page1);
-
-        this._buildGeneralPage(page1, settings);
-        this._buildAgentPage(page1, settings);
-
-        const page2 = new Adw.PreferencesPage({
-            title: _('模型定价'),
-            icon_name: 'preferences-volumes-symbolic',
-        });
-        window.add(page2);
-        this._buildPricingPage(page2, settings);
-
-        const page3 = new Adw.PreferencesPage({
-            title: _('高级'),
-            icon_name: 'preferences-other-symbolic',
-        });
-        window.add(page3);
-        this._buildAdvancedPage(page3, settings);
+        return dropdown;
     }
 
-    _buildGeneralPage(page, settings) {
-        const generalGroup = new Adw.PreferencesGroup({
-            title: _('刷新间隔'),
-            description: _('自适应轮询：检测到 agent 日志最近 2 分钟内有写入时使用活跃间隔，否则切换到空闲间隔。'),
-        });
-        page.add(generalGroup);
+    const combo = new Gtk.ComboBoxText();
+    choices.forEach(c => combo.append(c[0], c[1]));
+    combo.set_active_id(choices[selected][0]);
+    combo.connect('changed', () => {
+        const id = combo.get_active_id();
+        if (id) settings.set_string(key, id);
+    });
+    return combo;
+}
 
-        const activeRow = new Adw.SpinRow({
-            title: _('活跃刷新间隔'),
-            subtitle: _('agent 正在写入日志时的轮询间隔（秒，5–300）'),
-            adjustment: new Gtk.Adjustment({
-                lower: 5,
-                upper: 300,
-                step_increment: 5,
-                page_increment: 30,
-                value: settings.get_int('active-refresh-interval'),
-            }),
-        });
-        settings.bind('active-refresh-interval', activeRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        generalGroup.add(activeRow);
-
-        const idleRow = new Adw.SpinRow({
-            title: _('空闲刷新间隔'),
-            subtitle: _('日志静默时的轮询间隔（秒，30–3600）'),
-            adjustment: new Gtk.Adjustment({
-                lower: 30,
-                upper: 3600,
-                step_increment: 30,
-                page_increment: 300,
-                value: settings.get_int('idle-refresh-interval'),
-            }),
-        });
-        settings.bind('idle-refresh-interval', idleRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        generalGroup.add(idleRow);
-
-        const displayGroup = new Adw.PreferencesGroup({
-            title: _('面板显示'),
-            description: _('配置顶部面板的显示内容'),
-        });
-        page.add(displayGroup);
-
-        const displayModeRow = new Adw.ComboRow({
-            title: _('显示模式'),
-            subtitle: _('选择面板显示的内容'),
-        });
-        const displayModeModel = new Gtk.StringList();
-        displayModeModel.append(_('Token 数'));
-        displayModeModel.append(_('费用'));
-        displayModeModel.append(_('请求数'));
-        displayModeModel.append(_('全部'));
-        displayModeRow.set_model(displayModeModel);
-
-        const currentMode = settings.get_string('display-mode');
-        // 'both' is the legacy value (originally tokens+cost). It now maps
-        // to 'all' (tokens · cost · requests) so existing users get the
-        // expanded composite display without losing their selection.
-        const modeIndex = currentMode === 'cost' ? 1
-            : currentMode === 'requests' ? 2
-            : (currentMode === 'all' || currentMode === 'both') ? 3
-            : 0;
-        displayModeRow.set_selected(modeIndex);
-
-        displayModeRow.connect('notify::selected', () => {
-            const selected = displayModeRow.get_selected();
-            const modes = ['tokens', 'cost', 'requests', 'all'];
-            settings.set_string('display-mode', modes[selected]);
-        });
-        displayGroup.add(displayModeRow);
-
-        const showIconRow = new Adw.SwitchRow({
-            title: _('显示图标'),
-            subtitle: _('在顶部面板显示扩展图标'),
-        });
-        settings.bind('show-icon', showIconRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        displayGroup.add(showIconRow);
-
-        const positionRow = new Adw.ComboRow({
-            title: _('面板位置'),
-            subtitle: _('选择扩展图标在顶部面板中的位置'),
-        });
-        const positionModel = new Gtk.StringList();
-        positionModel.append(_('靠右'));
-        positionModel.append(_('靠左'));
-        positionModel.append(_('居中'));
-        positionModel.append(_('最右'));
-        positionModel.append(_('最左'));
-        positionRow.set_model(positionModel);
-
-        const currentPos = settings.get_string('panel-position');
-        const posIndex = currentPos === 'left' ? 1 : currentPos === 'center' ? 2
-            : currentPos === 'far-right' ? 3 : currentPos === 'far-left' ? 4 : 0;
-        positionRow.set_selected(posIndex);
-
-        positionRow.connect('notify::selected', () => {
-            const positions = ['right', 'left', 'center', 'far-right', 'far-left'];
-            settings.set_string('panel-position', positions[positionRow.get_selected()]);
-        });
-        displayGroup.add(positionRow);
-
-        const dateGroup = new Adw.PreferencesGroup({
-            title: _('日期范围'),
-            description: _('选择统计数据的日期范围'),
-        });
-        page.add(dateGroup);
-
-        const datePresetRow = new Adw.ComboRow({
-            title: _('日期预设'),
-            subtitle: _('快速选择日期范围'),
-        });
-        const datePresetModel = new Gtk.StringList();
-        datePresetModel.append(_('今天'));
-        datePresetModel.append(_('最近7天'));
-        datePresetModel.append(_('最近30天'));
-        datePresetModel.append(_('自定义'));
-        datePresetRow.set_model(datePresetModel);
-
-        const currentPreset = settings.get_string('date-range-preset');
-        const presetIndex = currentPreset === '7d' ? 1 : currentPreset === '30d' ? 2 : currentPreset === 'custom' ? 3 : 0;
-        datePresetRow.set_selected(presetIndex);
-
-        datePresetRow.connect('notify::selected', () => {
-            const presets = ['today', '7d', '30d', 'custom'];
-            settings.set_string('date-range-preset', presets[datePresetRow.get_selected()]);
-        });
-        dateGroup.add(datePresetRow);
-
-        const sinceRow = new Adw.EntryRow({
-            title: _('起始日期 (YYYY-MM-DD)'),
-            show_apply_button: true,
-        });
-        sinceRow.set_text(settings.get_string('custom-date-since'));
-        sinceRow.connect('apply', () => {
-            settings.set_string('custom-date-since', sinceRow.get_text());
-        });
-        dateGroup.add(sinceRow);
-
-        const untilRow = new Adw.EntryRow({
-            title: _('截止日期 (YYYY-MM-DD)'),
-            show_apply_button: true,
-        });
-        untilRow.set_text(settings.get_string('custom-date-until'));
-        untilRow.connect('apply', () => {
-            settings.set_string('custom-date-until', untilRow.get_text());
-        });
-        dateGroup.add(untilRow);
+function _selectedAgents(settings) {
+    try {
+        return settings.get_strv('selected-agents');
+    } catch (e) {
+        return ['claude'];
     }
+}
 
-    _buildAgentPage(page, settings) {
-        const agentGroup = new Adw.PreferencesGroup({
-            title: _('代理源'),
-            description: _('选择要监控的编码代理（从本地日志文件读取数据）'),
-        });
-        page.add(agentGroup);
-
-        const selectedAgents = settings.get_strv('selected-agents');
-
-        for (const agent of SUPPORTED_AGENTS) {
-            const row = new Adw.ActionRow({
-                title: agent.name,
-                subtitle: agent.id,
-            });
-
-            const check = new Gtk.CheckButton({
-                active: selectedAgents.includes(agent.id),
-            });
-            check.connect('notify::active', () => {
-                const current = settings.get_strv('selected-agents');
-                if (check.active) {
-                    if (!current.includes(agent.id)) {
-                        current.push(agent.id);
-                    }
-                } else {
-                    const idx = current.indexOf(agent.id);
-                    if (idx >= 0) {
-                        current.splice(idx, 1);
-                    }
-                }
-                settings.set_strv('selected-agents', current);
-            });
-
-            row.add_suffix(check);
-            row.activatable_widget = check;
-            agentGroup.add(row);
-        }
-
-        const multiplierGroup = new Adw.PreferencesGroup({
-            title: _('成本计算'),
-            description: _('配置成本倍率和换算'),
-        });
-        page.add(multiplierGroup);
-
-        const multiplierRow = new Adw.SpinRow({
-            title: _('成本倍率'),
-            subtitle: _('应用于总成本的倍率（用于加价或折扣）'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0.1,
-                upper: 10,
-                step_increment: 0.1,
-                page_increment: 1,
-                value: settings.get_double('cost-multiplier'),
-            }),
-            digits: 2,
-        });
-        settings.bind('cost-multiplier', multiplierRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        multiplierGroup.add(multiplierRow);
+function _setSelectedAgent(settings, id, enabled) {
+    let agents = _selectedAgents(settings);
+    if (enabled) {
+        if (agents.indexOf(id) === -1) agents.push(id);
+    } else {
+        agents = agents.filter(agent => agent !== id);
+        if (agents.length === 0) agents = ['claude'];
     }
+    settings.set_strv('selected-agents', agents);
+}
 
-    _buildPricingPage(page, settings) {
-        const infoGroup = new Adw.PreferencesGroup({
-            title: _('模型定价'),
-            description: _('管理模型价格覆盖。自定义定价优先于内置默认定价。'),
-        });
-        page.add(infoGroup);
+function _buildGeneralPage(root, settings) {
+    let group = _group(_('刷新间隔'), _('检测到日志最近 2 分钟内有写入时使用活跃间隔，否则使用空闲间隔。'));
+    _row(group.inner, _('活跃刷新间隔'), _('agent 正在写入日志时的轮询间隔（秒，5-300）'), _spin(settings, 'active-refresh-interval', 5, 300, 5, 0));
+    _row(group.inner, _('空闲刷新间隔'), _('日志静默时的轮询间隔（秒，30-3600）'), _spin(settings, 'idle-refresh-interval', 30, 3600, 30, 0));
+    _add(root, group.frame);
 
-        const overrideList = new Gtk.ListBox({
-            selection_mode: Gtk.SelectionMode.NONE,
-            css_classes: ['boxed-list'],
-        });
-        infoGroup.add(overrideList);
+    group = _group(_('面板显示'), _('配置顶部面板的显示内容和位置。'));
+    _row(group.inner, _('显示模式'), '', _choice(settings, 'display-mode', [
+        ['tokens', _('Token 数')], ['cost', _('费用')], ['requests', _('请求数')], ['all', _('全部')],
+    ]));
+    _row(group.inner, _('显示图标'), '', _switch(settings, 'show-icon'));
+    _row(group.inner, _('面板位置'), '', _choice(settings, 'panel-position', [
+        ['right', _('靠右')], ['left', _('靠左')], ['center', _('居中')], ['far-right', _('最右')], ['far-left', _('最左')],
+    ]));
+    _add(root, group.frame);
 
-        const renderPricingList = () => {
-            let child;
-            while ((child = overrideList.get_first_child()) !== null) {
-                overrideList.remove(child);
-            }
+    group = _group(_('日期范围'), _('选择统计数据的日期范围。'));
+    _row(group.inner, _('日期预设'), '', _choice(settings, 'date-range-preset', [
+        ['today', _('今天')], ['7d', _('7 天')], ['30d', _('30 天')], ['custom', _('自定义')], ['all', _('全部')],
+    ]));
+    _row(group.inner, _('起始日期'), _('格式 YYYY-MM-DD，仅自定义日期范围使用。'), _entry(settings, 'custom-date-since', 'YYYY-MM-DD'));
+    _row(group.inner, _('截止日期'), _('格式 YYYY-MM-DD，仅自定义日期范围使用。'), _entry(settings, 'custom-date-until', 'YYYY-MM-DD'));
+    _add(root, group.frame);
+}
 
-            let overrides = {};
-            try {
-                overrides = JSON.parse(settings.get_string('price-overrides') || '{}');
-            } catch (e) { /* ignore */ }
-
-            const keys = Object.keys(overrides).sort();
-            for (const modelId of keys) {
-                const pricing = overrides[modelId];
-                const row = new Adw.ActionRow({
-                    title: pricing.displayName || modelId,
-                    subtitle: _(`输入 $${pricing.input}/M  输出 $${pricing.output}/M  缓存读 $${pricing.cacheRead || 0}/M  缓存写 $${pricing.cacheWrite || 0}/M`),
-                });
-
-                const deleteBtn = new Gtk.Button({
-                    icon_name: 'edit-delete-symbolic',
-                    css_classes: ['destructive-action', 'circular'],
-                    valign: Gtk.Align.CENTER,
-                });
-                deleteBtn.connect('clicked', () => {
-                    const current = JSON.parse(settings.get_string('price-overrides') || '{}');
-                    delete current[modelId];
-                    settings.set_string('price-overrides', JSON.stringify(current));
-                    renderPricingList();
-                });
-
-                row.add_suffix(deleteBtn);
-                overrideList.append(row);
-            }
-
-            if (keys.length === 0) {
-                const emptyRow = new Adw.ActionRow({
-                    title: _('暂无自定义定价'),
-                    subtitle: _('点击下方按钮添加模型定价'),
-                });
-                emptyRow.set_sensitive(false);
-                overrideList.append(emptyRow);
-            }
-        };
-
-        renderPricingList();
-        settings.connect('changed::price-overrides', renderPricingList);
-
-        const addActionGroup = new Adw.PreferencesGroup({});
-        page.add(addActionGroup);
-
-        const addRow = new Adw.ActionRow({
-            title: _('添加模型定价'),
-            icon_name: 'list-add-symbolic',
-        });
-        addRow.connect('activated', () => {
-            this._openPricingDialog(window, settings, null, renderPricingList);
-        });
-        addActionGroup.add(addRow);
-
-        const defaultsGroup = new Adw.PreferencesGroup({
-            title: _('内置默认定价'),
-            description: _('扩展内置了 90+ 个模型的默认定价，无需手动配置。仅当需要覆盖特定模型价格时才添加自定义定价。'),
-        });
-        page.add(defaultsGroup);
-
-        const resetRow = new Adw.ActionRow({
-            title: _('重置所有自定义定价'),
-            subtitle: _('删除所有自定义定价覆盖，恢复使用默认定价'),
-            icon_name: 'edit-undo-symbolic',
-        });
-        resetRow.connect('activated', () => {
-            settings.set_string('price-overrides', '{}');
-            renderPricingList();
-        });
-        defaultsGroup.add(resetRow);
+function _buildAgentsPage(root, settings) {
+    const group = _group(_('监控代理'), _('选择要扫描的本地编码代理日志。'));
+    for (const agent of DefaultPricing.SUPPORTED_AGENTS) {
+        const check = new Gtk.CheckButton({ label: agent.name, active: _selectedAgents(settings).indexOf(agent.id) !== -1 });
+        check.connect('toggled', () => _setSelectedAgent(settings, agent.id, check.get_active()));
+        _add(group.inner, check);
     }
+    _add(root, group.frame);
+}
 
-    _openPricingDialog(parentWindow, settings, existingModel, refreshCallback) {
-        const dialog = new Adw.Dialog({
-            title: existingModel ? _('编辑模型定价') : _('添加模型定价'),
-            content_width: 400,
-            content_height: 500,
-        });
+function _buildCostPage(root, settings) {
+    let group = _group(_('费用显示'), _('配置费用显示、换算和定价覆盖。'));
+    _row(group.inner, _('显示货币'), '', _choice(settings, 'cost-currency', [['CNY', _('人民币 CNY')], ['USD', _('美元 USD')]]));
+    _row(group.inner, _('CNY 汇率'), _('1 USD 等于多少 CNY。'), _spin(settings, 'cny-exchange-rate', 0.1, 100, 0.1, 2));
+    _row(group.inner, _('成本倍率'), _('应用于总成本的倍率。'), _spin(settings, 'cost-multiplier', 0.1, 100, 0.1, 2));
+    _row(group.inner, _('Token 显示格式'), '', _choice(settings, 'token-display-format', [
+        ['auto', _('自动')], ['K', 'K'], ['M', 'M'], ['B', 'B'], ['raw', _('原始数值')],
+    ]));
+    _row(group.inner, _('日期排序'), '', _choice(settings, 'sort-order', [['desc', _('降序')], ['asc', _('升序')]]));
+    _add(root, group.frame);
 
-        const page = new Adw.PreferencesPage({});
-        const group = new Adw.PreferencesGroup({});
-        page.add(group);
-        dialog.set_child(page);
+    group = _group(_('自定义模型定价'), _('JSON 对象，键为模型 ID，值包含 input/output/cacheRead/cacheWrite。'));
+    const entry = new Gtk.Entry({ text: settings.get_string('price-overrides'), hexpand: true });
+    entry.connect('changed', () => settings.set_string('price-overrides', entry.get_text()));
+    _row(group.inner, _('价格覆盖 JSON'), '', entry);
+    _add(root, group.frame);
+}
 
-        const modelIdRow = new Adw.EntryRow({
-            title: _('模型 ID'),
-        });
-        if (existingModel) {
-            modelIdRow.set_text(existingModel);
-            modelIdRow.set_sensitive(false);
-        }
-        group.add(modelIdRow);
+function _buildAdvancedPage(root, settings) {
+    const group = _group(_('高级'), _('排查问题时可启用调试日志。'));
+    _row(group.inner, _('调试模式'), '', _switch(settings, 'debug-mode'));
+    _add(root, group.frame);
+}
 
-        const displayNameRow = new Adw.EntryRow({
-            title: _('显示名称'),
-        });
-        group.add(displayNameRow);
+function buildPrefsWidget() {
+    const settings = ExtensionUtils.getSettings(SCHEMA_ID);
+    const scrolled = new Gtk.ScrolledWindow();
+    if (scrolled.set_policy) scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
 
-        const inputRow = new Adw.SpinRow({
-            title: _('输入价格 ($/M tokens)'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0, upper: 1000, step_increment: 0.01, page_increment: 1, value: 0,
-            }),
-            digits: 4,
-        });
-        group.add(inputRow);
+    const root = _box(Gtk.Orientation.VERTICAL, 14);
+    _setMargins(root, 16);
+    root.hexpand = true;
+    root.vexpand = true;
 
-        const outputRow = new Adw.SpinRow({
-            title: _('输出价格 ($/M tokens)'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0, upper: 1000, step_increment: 0.01, page_increment: 1, value: 0,
-            }),
-            digits: 4,
-        });
-        group.add(outputRow);
+    _buildGeneralPage(root, settings);
+    _buildAgentsPage(root, settings);
+    _buildCostPage(root, settings);
+    _buildAdvancedPage(root, settings);
 
-        const cacheReadRow = new Adw.SpinRow({
-            title: _('缓存读价格 ($/M tokens)'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0, upper: 1000, step_increment: 0.01, page_increment: 1, value: 0,
-            }),
-            digits: 4,
-        });
-        group.add(cacheReadRow);
-
-        const cacheWriteRow = new Adw.SpinRow({
-            title: _('缓存写价格 ($/M tokens)'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0, upper: 1000, step_increment: 0.01, page_increment: 1, value: 0,
-            }),
-            digits: 4,
-        });
-        group.add(cacheWriteRow);
-
-        if (existingModel) {
-            let overrides = {};
-            try {
-                overrides = JSON.parse(settings.get_string('price-overrides') || '{}');
-            } catch (e) { /* ignore */ }
-            const pricing = overrides[existingModel];
-            if (pricing) {
-                displayNameRow.set_text(pricing.displayName || '');
-                inputRow.set_value(pricing.input || 0);
-                outputRow.set_value(pricing.output || 0);
-                cacheReadRow.set_value(pricing.cacheRead || 0);
-                cacheWriteRow.set_value(pricing.cacheWrite || 0);
-            }
-        }
-
-        modelIdRow.connect('apply', () => {
-            const id = modelIdRow.get_text().trim();
-            if (DEFAULT_PRICING[id] && !existingModel) {
-                const p = DEFAULT_PRICING[id];
-                displayNameRow.set_text(p.displayName || id);
-                inputRow.set_value(p.input || 0);
-                outputRow.set_value(p.output || 0);
-                cacheReadRow.set_value(p.cacheRead || 0);
-                cacheWriteRow.set_value(p.cacheWrite || 0);
-            }
-        });
-
-        const saveGroup = new Adw.PreferencesGroup({});
-        page.add(saveGroup);
-        const saveBtn = new Gtk.Button({
-            label: _('保存'),
-            css_classes: ['suggested-action', 'pill'],
-            halign: Gtk.Align.CENTER,
-        });
-        saveBtn.connect('clicked', () => {
-            const modelId = existingModel || modelIdRow.get_text().trim();
-            if (!modelId) return;
-
-            let overrides = {};
-            try {
-                overrides = JSON.parse(settings.get_string('price-overrides') || '{}');
-            } catch (e) { /* ignore */ }
-
-            overrides[modelId] = {
-                displayName: displayNameRow.get_text().trim() || modelId,
-                input: parseFloat(inputRow.get_value().toFixed(4)),
-                output: parseFloat(outputRow.get_value().toFixed(4)),
-                cacheRead: parseFloat(cacheReadRow.get_value().toFixed(4)),
-                cacheWrite: parseFloat(cacheWriteRow.get_value().toFixed(4)),
-            };
-
-            settings.set_string('price-overrides', JSON.stringify(overrides));
-            if (refreshCallback) refreshCallback();
-            dialog.close();
-        });
-        saveGroup.add(saveBtn);
-
-        dialog.present(parentWindow);
-    }
-
-    _buildAdvancedPage(page, settings) {
-        const displayGroup = new Adw.PreferencesGroup({
-            title: _('显示设置'),
-            description: _('配置数据显示格式和货币'),
-        });
-        page.add(displayGroup);
-
-        const currencyRow = new Adw.ComboRow({
-            title: _('货币'),
-            subtitle: _('选择费用显示的货币'),
-        });
-        const currencyModel = new Gtk.StringList();
-        currencyModel.append('CNY (¥)');
-        currencyModel.append('USD ($)');
-        currencyRow.set_model(currencyModel);
-        currencyRow.set_selected(settings.get_string('cost-currency') === 'USD' ? 1 : 0);
-        currencyRow.connect('notify::selected', () => {
-            settings.set_string('cost-currency', currencyRow.get_selected() === 1 ? 'USD' : 'CNY');
-        });
-        displayGroup.add(currencyRow);
-
-        const cnyRateRow = new Adw.SpinRow({
-            title: _('CNY 汇率'),
-            subtitle: _('1 USD 等于多少 CNY'),
-            adjustment: new Gtk.Adjustment({
-                lower: 1, upper: 20, step_increment: 0.01, page_increment: 0.5,
-                value: settings.get_double('cny-exchange-rate'),
-            }),
-            digits: 2,
-        });
-        settings.bind('cny-exchange-rate', cnyRateRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        displayGroup.add(cnyRateRow);
-
-        const tokenFormatRow = new Adw.ComboRow({
-            title: _('Token 显示格式'),
-            subtitle: _('选择 Token 数量的显示方式'),
-        });
-        const tokenFormatModel = new Gtk.StringList();
-        tokenFormatModel.append(_('自动（K/M/B 缩写）'));
-        tokenFormatModel.append(_('始终使用 K'));
-        tokenFormatModel.append(_('始终使用 M'));
-        tokenFormatModel.append(_('始终使用 B'));
-        tokenFormatModel.append(_('原始数值'));
-        tokenFormatRow.set_model(tokenFormatModel);
-        const currentFormat = settings.get_string('token-display-format');
-        const formatIndex = currentFormat === 'K' ? 1
-            : currentFormat === 'M' ? 2
-            : currentFormat === 'B' ? 3
-            : currentFormat === 'raw' ? 4
-            : 0;
-        tokenFormatRow.set_selected(formatIndex);
-        tokenFormatRow.connect('notify::selected', () => {
-            const formats = ['auto', 'K', 'M', 'B', 'raw'];
-            settings.set_string('token-display-format', formats[tokenFormatRow.get_selected()]);
-        });
-        displayGroup.add(tokenFormatRow);
-
-        const sortOrderRow = new Adw.ComboRow({
-            title: _('日期排序'),
-            subtitle: _('日期数据的排列顺序'),
-        });
-        const sortModel = new Gtk.StringList();
-        sortModel.append(_('降序（最新在前）'));
-        sortModel.append(_('升序（最旧在前）'));
-        sortOrderRow.set_model(sortModel);
-        sortOrderRow.set_selected(settings.get_string('sort-order') === 'asc' ? 1 : 0);
-        sortOrderRow.connect('notify::selected', () => {
-            settings.set_string('sort-order', sortOrderRow.get_selected() === 1 ? 'asc' : 'desc');
-        });
-        displayGroup.add(sortOrderRow);
-
-        const debugGroup = new Adw.PreferencesGroup({
-            title: _('调试'),
-            description: _('调试选项'),
-        });
-        page.add(debugGroup);
-
-        const debugRow = new Adw.SwitchRow({
-            title: _('调试模式'),
-            subtitle: _('在日志中输出调试信息（使用 journalctl -f -o cat 查看）'),
-        });
-        settings.bind('debug-mode', debugRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        debugGroup.add(debugRow);
-    }
+    _setChild(scrolled, root);
+    if (scrolled.show_all) scrolled.show_all();
+    return scrolled;
 }

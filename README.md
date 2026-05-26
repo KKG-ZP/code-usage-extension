@@ -25,11 +25,11 @@ OpenCode、Goose、Hermes 和 Kilo 使用 SQLite 数据源，需要系统安装 
 | `main` | 45-49 | `code-usage-extension-modern-v1.zip` | 现代版，使用 GNOME 45+ ES Module 扩展入口和 Libadwaita 设置页。 |
 | `legacy/gnome-3.36-44` | 3.36、3.38、40-44 | `code-usage-extension-legacy-v1.zip` | 兼容版，使用旧式 `imports.*` 扩展入口和 GTK 设置页。 |
 
-GNOME Shell 45 起扩展加载机制切换到 ES Module，旧版 Shell 无法解析现代版的 `import`/`export` 语法；GNOME Shell 3.36-44 请切换到 `legacy/gnome-3.36-44` 分支安装。
+当前分支是 legacy 兼容版。GNOME Shell 45-49 请使用 `main` 分支或 modern 发布包。
 
 ## 系统要求
 
-- GNOME Shell 45-49（当前 `main` 分支）
+- GNOME Shell 3.36、3.38、40-44（当前 `legacy/gnome-3.36-44` 分支）
 - `glib-compile-schemas`
 - 可选：`sqlite3`，仅 SQLite 数据源需要
 
@@ -60,7 +60,7 @@ gnome-extensions enable code-usage@gnome-extensions.local
 生成结果位于：
 
 ```text
-dist/code-usage-extension-modern-v1.zip
+dist/code-usage-extension-legacy-v1.zip
 ```
 
 发布包只包含运行时文件、安装脚本、许可文件和安装说明，不包含 `.git/`、`github/` 参考资料、翻译源文件或开发产物。

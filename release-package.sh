@@ -2,7 +2,7 @@
 set -euo pipefail
 
 EXT_UUID="code-usage@gnome-extensions.local"
-VERSION="modern-v1"
+VERSION="legacy-v1"
 DIST_DIR="dist"
 STAGING_DIR="$DIST_DIR/$EXT_UUID"
 ARCHIVE_NAME="code-usage-extension-$VERSION.zip"
