@@ -1,34 +1,54 @@
 // Ported from cc-switch src-tauri/src/proxy/usage/calculator.rs
-// Cost calculation with cache semantics handling
+// Cost calculation with cache semantics handling. Totals are calculated in CNY.
 
 import { CACHE_INCLUSIVE_APP_TYPES } from './defaultPricing.js';
 
 const MILLION = 1_000_000;
+const DEFAULT_EXCHANGE_RATE = 7.25;
+
+function _safeExchangeRate(exchangeRate) {
+    return exchangeRate > 0 ? exchangeRate : DEFAULT_EXCHANGE_RATE;
+}
+
+function _pricingInCny(pricing, exchangeRate) {
+    if ((pricing.currency || 'USD') === 'CNY') return pricing;
+
+    const rate = _safeExchangeRate(exchangeRate);
+    return {
+        ...pricing,
+        input: pricing.input * rate,
+        output: pricing.output * rate,
+        cacheRead: pricing.cacheRead * rate,
+        cacheWrite: pricing.cacheWrite * rate,
+        currency: 'CNY',
+    };
+}
 
 export class CostCalculator {
-    static calculate(usage, pricing, costMultiplier = 1.0) {
+    static calculate(usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         return CostCalculator.calculateWithCacheSemantics(
-            usage, pricing, costMultiplier, false
+            usage, pricing, costMultiplier, false, exchangeRate
         );
     }
 
-    static calculateForApp(appType, usage, pricing, costMultiplier = 1.0) {
+    static calculateForApp(appType, usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         const inputIncludesCacheRead = CACHE_INCLUSIVE_APP_TYPES.has(appType);
         return CostCalculator.calculateWithCacheSemantics(
-            usage, pricing, costMultiplier, inputIncludesCacheRead
+            usage, pricing, costMultiplier, inputIncludesCacheRead, exchangeRate
         );
     }
 
-    static calculateWithCacheSemantics(usage, pricing, costMultiplier, inputIncludesCacheRead) {
+    static calculateWithCacheSemantics(usage, pricing, costMultiplier, inputIncludesCacheRead, exchangeRate = DEFAULT_EXCHANGE_RATE) {
+        const cnyPricing = _pricingInCny(pricing, exchangeRate);
         let billableInputTokens = usage.inputTokens;
         if (inputIncludesCacheRead) {
             billableInputTokens = Math.max(0, usage.inputTokens - usage.cacheReadTokens);
         }
 
-        const inputCost = billableInputTokens * pricing.input / MILLION;
-        const outputCost = usage.outputTokens * pricing.output / MILLION;
-        const cacheReadCost = usage.cacheReadTokens * pricing.cacheRead / MILLION;
-        const cacheWriteCost = usage.cacheCreationTokens * pricing.cacheWrite / MILLION;
+        const inputCost = billableInputTokens * cnyPricing.input / MILLION;
+        const outputCost = usage.outputTokens * cnyPricing.output / MILLION;
+        const cacheReadCost = usage.cacheReadTokens * cnyPricing.cacheRead / MILLION;
+        const cacheWriteCost = usage.cacheCreationTokens * cnyPricing.cacheWrite / MILLION;
 
         const baseTotal = inputCost + outputCost + cacheReadCost + cacheWriteCost;
         const totalCost = baseTotal * costMultiplier;
@@ -43,34 +63,35 @@ export class CostCalculator {
         };
     }
 
-    static tryCalculateForApp(appType, usage, pricing, costMultiplier = 1.0) {
+    static tryCalculateForApp(appType, usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         if (!pricing) return null;
-        return CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier);
+        return CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
     }
 }
 
-export function formatCost(costUSD, currency = 'USD', exchangeRate = 7.25) {
-    if (currency === 'CNY') {
-        const cny = costUSD * exchangeRate;
-        if (cny < 0.01) return '¥0.00';
-        if (cny >= 1000) return `¥${cny.toFixed(0)}`;
-        if (cny >= 100) return `¥${cny.toFixed(1)}`;
-        return `¥${cny.toFixed(2)}`;
+export function formatCost(costCNY, currency = 'CNY', exchangeRate = DEFAULT_EXCHANGE_RATE) {
+    if (currency === 'USD') {
+        const usd = costCNY / _safeExchangeRate(exchangeRate);
+        if (usd < 0.01) return '$0.00';
+        if (usd >= 1000) return '$' + usd.toFixed(0);
+        if (usd >= 100) return '$' + usd.toFixed(1);
+        return '$' + usd.toFixed(2);
     }
-    if (costUSD < 0.01) return '$0.00';
-    if (costUSD >= 1000) return `$${costUSD.toFixed(0)}`;
-    if (costUSD >= 100) return `$${costUSD.toFixed(1)}`;
-    return `$${costUSD.toFixed(2)}`;
+
+    if (costCNY < 0.01) return '¥0.00';
+    if (costCNY >= 1000) return '¥' + costCNY.toFixed(0);
+    if (costCNY >= 100) return '¥' + costCNY.toFixed(1);
+    return '¥' + costCNY.toFixed(2);
 }
 
 export function formatTokens(tokens, format = 'auto') {
     if (format === 'raw') return tokens.toLocaleString();
-    if (format === 'K') return `${(tokens / 1_000).toFixed(1)}K`;
-    if (format === 'M') return `${(tokens / 1_000_000).toFixed(1)}M`;
-    if (format === 'B') return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-    if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-    if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+    if (format === 'K') return (tokens / 1_000).toFixed(1) + 'K';
+    if (format === 'M') return (tokens / 1_000_000).toFixed(1) + 'M';
+    if (format === 'B') return (tokens / 1_000_000_000).toFixed(1) + 'B';
+    if (tokens >= 1_000_000_000) return (tokens / 1_000_000_000).toFixed(1) + 'B';
+    if (tokens >= 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M';
+    if (tokens >= 1_000) return (tokens / 1_000).toFixed(1) + 'K';
     return tokens.toLocaleString();
 }
 

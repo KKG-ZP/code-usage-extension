@@ -40,7 +40,7 @@ function _makeEllipsizedLabel(params = {}) {
  * The tooltip is automatically destroyed when the actor leaves hover or is
  * destroyed. Returns nothing; cleanup is handled internally.
  */
-function _attachHoverTooltip(actor, getText, shouldShow) {
+function _attachHoverTooltip(actor, getText, shouldShow, options = {}) {
     actor.reactive = true;
     actor.track_hover = true;
 
@@ -66,10 +66,29 @@ function _attachHoverTooltip(actor, getText, shouldShow) {
             Main.layoutManager.addChrome(tooltip);
 
             const [x, y] = actor.get_transformed_position();
+            const actorW = actor.get_width();
             const actorH = actor.get_height();
-            // Place tooltip just below the actor, slightly indented from left edge.
-            const tx = Math.round(x);
-            const ty = Math.round(y + actorH + 2);
+            const [, tooltipW] = tooltip.get_preferred_width(-1);
+            const [, tooltipH] = tooltip.get_preferred_height(-1);
+            const monitor = Main.layoutManager.findMonitorForActor
+                ? Main.layoutManager.findMonitorForActor(actor)
+                : Main.layoutManager.primaryMonitor;
+            const gap = 6;
+            const margin = 8;
+            const minX = monitor.x + margin;
+            const maxX = monitor.x + monitor.width - tooltipW - margin;
+            let tx = Math.round(x + actorW / 2 - tooltipW / 2);
+            tx = Math.max(minX, Math.min(tx, maxX));
+
+            let ty;
+            if (options.placement === 'above') {
+                ty = Math.round(y - tooltipH - gap);
+                if (ty < monitor.y + margin) {
+                    ty = Math.round(y + actorH + gap);
+                }
+            } else {
+                ty = Math.round(y + actorH + 2);
+            }
             tooltip.set_position(tx, ty);
         } else {
             removeTooltip();
@@ -110,6 +129,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._modelPage = 0;
         this._modelListData = [];
         this._modelListDirty = false;
+        this._heatmapWeeksData = [];
         // Adaptive timer state: 'active' uses active-refresh-interval, 'idle'
         // uses idle-refresh-interval. Transitions happen after each scan
         // based on how long ago the most recent log write was.
@@ -443,6 +463,94 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        const heatmapBox = new St.BoxLayout({
+            style_class: 'cu-heatmap-section',
+            vertical: true,
+            x_expand: true,
+        });
+        const heatmapHeader = new St.BoxLayout({
+            style_class: 'cu-heatmap-header',
+            vertical: false,
+            x_expand: true,
+        });
+        const heatmapTitle = new St.Label({
+            text: _('Token 贡献'),
+            style_class: 'cu-section-title',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        heatmapHeader.add_child(heatmapTitle);
+
+        this._heatmapDetailLabel = _makeEllipsizedLabel({
+            text: _('悬停查看详情'),
+            style_class: 'cu-heatmap-detail',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        heatmapHeader.add_child(this._heatmapDetailLabel);
+        heatmapBox.add_child(heatmapHeader);
+
+        this._heatmapMonthRow = new St.BoxLayout({
+            style_class: 'cu-heatmap-month-row',
+            vertical: false,
+            x_expand: true,
+        });
+        heatmapBox.add_child(this._heatmapMonthRow);
+
+        const heatmapBody = new St.BoxLayout({
+            style_class: 'cu-heatmap-body',
+            vertical: false,
+            x_expand: true,
+        });
+        const weekdayCol = new St.BoxLayout({
+            style_class: 'cu-heatmap-weekdays',
+            vertical: true,
+        });
+        for (const label of ['', _('一'), '', _('三'), '', _('五'), '']) {
+            const weekdaySlot = new St.BoxLayout({
+                style_class: 'cu-heatmap-weekday-slot',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+            weekdaySlot.add_child(new St.Label({
+                text: label,
+                style_class: 'cu-heatmap-weekday',
+                x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+            weekdayCol.add_child(weekdaySlot);
+        }
+        heatmapBody.add_child(weekdayCol);
+
+        this._heatmapGrid = new St.BoxLayout({
+            style_class: 'cu-heatmap-grid',
+            vertical: false,
+            x_expand: true,
+        });
+        heatmapBody.add_child(this._heatmapGrid);
+        heatmapBox.add_child(heatmapBody);
+
+        const heatmapLegend = new St.BoxLayout({
+            style_class: 'cu-heatmap-legend',
+            vertical: false,
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
+        });
+        heatmapLegend.add_child(new St.Label({ text: _('少'), style_class: 'cu-heatmap-legend-label' }));
+        for (let level = 0; level <= 4; level++) {
+            heatmapLegend.add_child(new St.Widget({ style_class: `cu-heatmap-cell cu-heatmap-level-${level}` }));
+        }
+        heatmapLegend.add_child(new St.Label({ text: _('多'), style_class: 'cu-heatmap-legend-label' }));
+        heatmapBox.add_child(heatmapLegend);
+
+        const heatmapItem = new PopupMenu.PopupBaseMenuItem({
+            reactive: false,
+            can_focus: false,
+        });
+        heatmapItem.add_child(heatmapBox);
+        this.menu.addMenuItem(heatmapItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         const dateBox = new St.BoxLayout({
             style_class: 'cu-date-section',
             vertical: true,
@@ -689,6 +797,93 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._costCard._valueLabel.set_text(data.totalCostFormatted);
 
         this._updateModelList(data);
+        this._updateTokenHeatmap(data);
+    }
+
+    _updateTokenHeatmap(data) {
+        this._heatmapWeeksData = data.heatmapWeeks || [];
+
+        for (const child of this._heatmapMonthRow.get_children()) {
+            this._heatmapMonthRow.remove_child(child);
+        }
+        for (const child of this._heatmapGrid.get_children()) {
+            this._heatmapGrid.remove_child(child);
+        }
+
+        this._heatmapDetailLabel.set_text(this._defaultHeatmapDetail(this._heatmapWeeksData));
+
+        this._heatmapMonthRow.add_child(new St.Label({
+            text: '',
+            style_class: 'cu-heatmap-month-spacer',
+        }));
+
+        for (let weekIndex = 0; weekIndex < this._heatmapWeeksData.length; weekIndex++) {
+            const week = this._heatmapWeeksData[weekIndex];
+            const monthText = this._monthLabelForWeek(week, weekIndex);
+            this._heatmapMonthRow.add_child(new St.Label({
+                text: monthText,
+                style_class: 'cu-heatmap-month-label',
+                x_align: Clutter.ActorAlign.START,
+            }));
+
+            const weekCol = new St.BoxLayout({
+                style_class: 'cu-heatmap-week',
+                vertical: true,
+            });
+
+            for (const day of week) {
+                const level = day.level == null ? -1 : day.level;
+                const cell = new St.Widget({
+                    style_class: `cu-heatmap-cell cu-heatmap-level-${level}`,
+                    reactive: day.inRange,
+                    can_focus: day.inRange,
+                });
+
+                if (day.inRange) {
+                    cell.track_hover = true;
+                    cell.connect('notify::hover', () => {
+                        if (cell.hover) {
+                            this._heatmapDetailLabel.set_text(this._formatHeatmapDetail(day));
+                        }
+                    });
+                }
+
+                weekCol.add_child(cell);
+            }
+            this._heatmapGrid.add_child(weekCol);
+        }
+    }
+
+    _formatHeatmapDetail(day) {
+        return `${day.date} · ${day.totalTokensFormatted} Token · ${day.requestCount} ${_('次请求')}`;
+    }
+
+    _defaultHeatmapDetail(weeks) {
+        for (let weekIndex = weeks.length - 1; weekIndex >= 0; weekIndex--) {
+            const week = weeks[weekIndex];
+            for (let dayIndex = week.length - 1; dayIndex >= 0; dayIndex--) {
+                const day = week[dayIndex];
+                if (day.inRange && day.totalTokens > 0) {
+                    return this._formatHeatmapDetail(day);
+                }
+            }
+        }
+        return _('悬停查看详情');
+    }
+
+    _monthLabelForWeek(week, weekIndex) {
+        for (const day of week) {
+            if (!day.inRange) continue;
+            const parts = day.date.split('-');
+            if (parts.length === 3 && parts[2] === '01') {
+                return `${Number(parts[1])}${_('月')}`;
+            }
+        }
+        if (weekIndex !== 0) return '';
+        const first = week.find(day => day.inRange);
+        if (!first) return '';
+        const month = Number(first.date.split('-')[1]);
+        return month ? `${month}${_('月')}` : '';
     }
 
     _updateModelList(data) {

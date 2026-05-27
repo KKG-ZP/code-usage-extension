@@ -266,6 +266,122 @@
     padding: 4px 0;
 }
 
+/* Token contribution heatmap */
+.cu-heatmap-section {
+    padding: 4px 0;
+    spacing: 4px;
+    min-width: 266px;
+    max-width: 326px;
+}
+
+.cu-heatmap-header {
+    spacing: 8px;
+}
+
+.cu-heatmap-detail {
+    font-size: 9px;
+    font-weight: 600;
+    color: #666666;
+    text-align: right;
+}
+
+.cu-heatmap-month-row {
+    spacing: 0;
+}
+
+.cu-heatmap-month-spacer {
+    min-width: 18px;
+    max-width: 18px;
+}
+
+.cu-heatmap-month-label {
+    min-width: 14px;
+    max-width: 14px;
+    font-size: 7px;
+    font-weight: 600;
+    color: #8a6f45;
+}
+
+.cu-heatmap-body {
+    spacing: 4px;
+}
+
+.cu-heatmap-weekdays {
+    spacing: 2px;
+    min-width: 14px;
+    max-width: 14px;
+}
+
+.cu-heatmap-weekday-slot {
+    height: 12px;
+    min-height: 12px;
+    max-height: 12px;
+    width: 14px;
+    min-width: 14px;
+    max-width: 14px;
+}
+
+.cu-heatmap-weekday {
+    font-size: 8px;
+    font-weight: 600;
+    color: #8a6f45;
+    padding: 0;
+    text-align: center;
+}
+
+.cu-heatmap-grid {
+    spacing: 2px;
+}
+
+.cu-heatmap-week {
+    spacing: 2px;
+}
+
+.cu-heatmap-cell {
+    width: 12px;
+    height: 12px;
+    min-width: 12px;
+    min-height: 12px;
+    border-radius: 2px;
+    border: 1px solid rgba(27, 31, 36, 0.06);
+}
+
+.cu-heatmap-level--1 {
+    background-color: rgba(0, 0, 0, 0.00);
+    border-color: rgba(0, 0, 0, 0.00);
+}
+
+.cu-heatmap-level-0 {
+    background-color: #ebedf0;
+}
+
+.cu-heatmap-level-1 {
+    background-color: #9be9a8;
+}
+
+.cu-heatmap-level-2 {
+    background-color: #40c463;
+}
+
+.cu-heatmap-level-3 {
+    background-color: #30a14e;
+}
+
+.cu-heatmap-level-4 {
+    background-color: #216e39;
+}
+
+.cu-heatmap-legend {
+    spacing: 3px;
+    padding-top: 2px;
+}
+
+.cu-heatmap-legend-label {
+    font-size: 9px;
+    color: #8a6f45;
+    padding: 0 2px;
+}
+
 /* Date range */
 .cu-date-section {
     padding: 4px 0;

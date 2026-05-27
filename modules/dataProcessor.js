@@ -2,21 +2,32 @@ import { CostCalculator, formatCost, formatTokens, calculateTokenAccountingForAp
 import { getPricingForModel } from './pricingResolver.js';
 import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
 
+const HEATMAP_WEEK_COUNT = 19;
+
 export class DataProcessor {
     constructor(settings) {
         this._settings = settings;
+        this._heatmapCache = {
+            entries: null,
+            today: '',
+            tokenFormat: '',
+            heatmapWeeks: null,
+        };
     }
 
     processEntries(entries) {
+        const tokenFormat = this._settings.get_string('token-display-format');
+        const today = _formatLocalDate(new Date());
+        const heatmapWeeks = this._getTokenHeatmapWeeks(entries || [], tokenFormat, today);
+
         if (!entries || entries.length === 0) {
-            return this._emptyResult();
+            return this._emptyResult(heatmapWeeks);
         }
 
         const costMultiplier = this._settings.get_double('cost-multiplier');
         const overridesJson = this._settings.get_string('price-overrides');
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
-        const tokenFormat = this._settings.get_string('token-display-format');
         const sortOrder = this._settings.get_string('sort-order');
 
         let totalRequests = 0;
@@ -52,11 +63,15 @@ export class DataProcessor {
             };
             const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
 
+            const hasUsageTokens = usage.inputTokens > 0
+                || usage.outputTokens > 0
+                || usage.cacheReadTokens > 0
+                || usage.cacheCreationTokens > 0;
             let entryCost = 0;
-            if (entry.costUSD != null) {
-                entryCost = entry.costUSD * costMultiplier;
-            } else if (pricing) {
-                const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier);
+            if (entry.costUSD != null && entry.costUSD > 0) {
+                entryCost = entry.costUSD * exchangeRate * costMultiplier;
+            } else if (pricing && hasUsageTokens) {
+                const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
                 entryCost = cost.totalCost;
             }
 
@@ -143,6 +158,7 @@ export class DataProcessor {
             cacheHitRate,
             cacheHitRateFormatted: `${(cacheHitRate * 100).toFixed(1)}%`,
             daily: dailyArr,
+            heatmapWeeks,
             modelStats: modelList.map(m => ({
                 ...m,
                 totalTokens: m.totalTokens,
@@ -196,10 +212,86 @@ export class DataProcessor {
         return () => true;
     }
 
-    _emptyResult() {
+    _getTokenHeatmapWeeks(entries, tokenFormat, today) {
+        if (
+            this._heatmapCache.entries === entries &&
+            this._heatmapCache.today === today &&
+            this._heatmapCache.tokenFormat === tokenFormat &&
+            this._heatmapCache.heatmapWeeks
+        ) {
+            return this._heatmapCache.heatmapWeeks;
+        }
+
+        const todayDate = _parseLocalDate(today);
+        const visibleStartDate = new Date(todayDate);
+        visibleStartDate.setDate(todayDate.getDate() - todayDate.getDay() - (HEATMAP_WEEK_COUNT - 1) * 7);
+
+        const rangeStart = _formatLocalDate(visibleStartDate);
+
+        const dailyMap = {};
+        for (const entry of entries) {
+            if (!entry.date || entry.date < rangeStart || entry.date > today) continue;
+
+            const agent = entry._agent || 'claude';
+            const appType = AGENT_APP_TYPE_MAP[agent] || agent;
+            const usage = {
+                inputTokens: entry.inputTokens || 0,
+                outputTokens: entry.outputTokens || 0,
+                cacheReadTokens: entry.cacheReadTokens || 0,
+                cacheCreationTokens: entry.cacheCreationTokens || 0,
+            };
+            const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
+
+            if (!dailyMap[entry.date]) {
+                dailyMap[entry.date] = { totalTokens: 0, requestCount: 0 };
+            }
+            dailyMap[entry.date].totalTokens += tokenAccounting.totalTokens;
+            dailyMap[entry.date].requestCount += 1;
+        }
+
+        const heatmapWeeks = [];
+        let maxTokens = 0;
+        for (let week = 0; week < HEATMAP_WEEK_COUNT; week++) {
+            const days = [];
+            for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                const date = new Date(visibleStartDate);
+                date.setDate(visibleStartDate.getDate() + week * 7 + dayOfWeek);
+                const dateKey = _formatLocalDate(date);
+                const inRange = dateKey >= rangeStart && dateKey <= today;
+                const stats = inRange ? (dailyMap[dateKey] || { totalTokens: 0, requestCount: 0 }) : { totalTokens: 0, requestCount: 0 };
+                if (stats.totalTokens > maxTokens) maxTokens = stats.totalTokens;
+                days.push({
+                    date: dateKey,
+                    inRange,
+                    isFuture: dateKey > today,
+                    totalTokens: stats.totalTokens,
+                    requestCount: stats.requestCount,
+                });
+            }
+            heatmapWeeks.push(days);
+        }
+
+        for (const week of heatmapWeeks) {
+            for (const day of week) {
+                day.totalTokensFormatted = formatTokens(day.totalTokens, tokenFormat);
+                day.level = day.inRange ? _tokenHeatLevel(day.totalTokens, maxTokens) : -1;
+            }
+        }
+
+        this._heatmapCache = {
+            entries,
+            today,
+            tokenFormat,
+            heatmapWeeks,
+        };
+        return heatmapWeeks;
+    }
+
+    _emptyResult(heatmapWeeks = null) {
         const currency = this._settings ? this._settings.get_string('cost-currency') : 'CNY';
         const exchangeRate = this._settings ? this._settings.get_double('cny-exchange-rate') : 7.25;
         const tokenFormat = this._settings ? this._settings.get_string('token-display-format') : 'auto';
+        const weeks = heatmapWeeks || this._getTokenHeatmapWeeks([], tokenFormat, _formatLocalDate(new Date()));
 
         return {
             totalRequests: 0,
@@ -217,6 +309,7 @@ export class DataProcessor {
             cacheHitRate: 0,
             cacheHitRateFormatted: '0.0%',
             daily: [],
+            heatmapWeeks: weeks,
             modelStats: [],
             daysWithUsage: 0,
             currency,
@@ -224,6 +317,20 @@ export class DataProcessor {
         };
     }
 }
+function _parseLocalDate(dateStr) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+}
+
+function _tokenHeatLevel(tokens, maxTokens) {
+    if (tokens <= 0 || maxTokens <= 0) return 0;
+    const ratio = tokens / maxTokens;
+    if (ratio <= 0.25) return 1;
+    if (ratio <= 0.5) return 2;
+    if (ratio <= 0.75) return 3;
+    return 4;
+}
+
 function _formatLocalDate(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
