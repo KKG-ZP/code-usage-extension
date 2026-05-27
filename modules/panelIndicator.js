@@ -490,13 +490,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         heatmapHeader.add_child(this._heatmapDetailLabel);
         heatmapBox.add_child(heatmapHeader);
 
-        this._heatmapMonthRow = new St.BoxLayout({
-            style_class: 'cu-heatmap-month-row',
-            vertical: false,
-            x_expand: true,
-        });
-        heatmapBox.add_child(this._heatmapMonthRow);
-
         const heatmapBody = new St.BoxLayout({
             style_class: 'cu-heatmap-body',
             vertical: false,
@@ -506,6 +499,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
             style_class: 'cu-heatmap-weekdays',
             vertical: true,
         });
+        weekdayCol.add_child(new St.Widget({
+            style_class: 'cu-heatmap-month-slot',
+        }));
         for (const label of ['', _('一'), '', _('三'), '', _('五'), '']) {
             const weekdaySlot = new St.BoxLayout({
                 style_class: 'cu-heatmap-weekday-slot',
@@ -803,33 +799,31 @@ class CodeUsageIndicator extends PanelMenu.Button {
     _updateTokenHeatmap(data) {
         this._heatmapWeeksData = data.heatmapWeeks || [];
 
-        for (const child of this._heatmapMonthRow.get_children()) {
-            this._heatmapMonthRow.remove_child(child);
-        }
         for (const child of this._heatmapGrid.get_children()) {
             this._heatmapGrid.remove_child(child);
         }
 
         this._heatmapDetailLabel.set_text(this._defaultHeatmapDetail(this._heatmapWeeksData));
 
-        this._heatmapMonthRow.add_child(new St.Label({
-            text: '',
-            style_class: 'cu-heatmap-month-spacer',
-        }));
-
         for (let weekIndex = 0; weekIndex < this._heatmapWeeksData.length; weekIndex++) {
             const week = this._heatmapWeeksData[weekIndex];
             const monthText = this._monthLabelForWeek(week, weekIndex);
-            this._heatmapMonthRow.add_child(new St.Label({
-                text: monthText,
-                style_class: 'cu-heatmap-month-label',
-                x_align: Clutter.ActorAlign.START,
-            }));
 
             const weekCol = new St.BoxLayout({
                 style_class: 'cu-heatmap-week',
                 vertical: true,
             });
+            const monthSlot = new St.BoxLayout({
+                style_class: 'cu-heatmap-month-slot',
+                x_align: Clutter.ActorAlign.START,
+            });
+            monthSlot.add_child(new St.Label({
+                text: monthText,
+                style_class: 'cu-heatmap-month-label',
+                x_align: Clutter.ActorAlign.START,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+            weekCol.add_child(monthSlot);
 
             for (const day of week) {
                 const level = day.level == null ? -1 : day.level;
