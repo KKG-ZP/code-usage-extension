@@ -200,6 +200,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 case 'cost-multiplier':
                 case 'price-overrides':
                 case 'sort-order':
+                case 'model-sort-by':
                 case 'date-range-preset':
                 case 'custom-date-since':
                 case 'custom-date-until':

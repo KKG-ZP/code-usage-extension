@@ -66,6 +66,11 @@
       <summary>日期排序</summary>
       <description>日期排序顺序：desc（降序）或 asc（升序）</description>
     </key>
+    <key name="model-sort-by" type="s">
+      <default>'cost'</default>
+      <summary>模型排序</summary>
+      <description>模型列表排序依据：cost（金额）、totalTokens（使用总量）、cacheHitRate（命中率）、requestCount（请求数）</description>
+    </key>
     <key name="token-display-format" type="s">
       <default>'auto'</default>
       <summary>Token 显示格式</summary>

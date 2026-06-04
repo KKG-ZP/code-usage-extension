@@ -29,6 +29,7 @@ export class DataProcessor {
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
         const sortOrder = this._settings.get_string('sort-order');
+        const modelSortBy = this._settings.get_string('model-sort-by');
 
         let totalRequests = 0;
         let totalInputTokens = 0;
@@ -134,8 +135,18 @@ export class DataProcessor {
             ? totalCacheReadTokens / totalCacheHitDenominator
             : 0;
 
-        const modelList = Object.values(modelStats).sort((a, b) => b.totalCost - a.totalCost);
-        const maxModelCost = modelList.length > 0 ? modelList[0].totalCost : 1;
+        for (const key of Object.keys(modelStats)) {
+            const m = modelStats[key];
+            m.cacheHitRate = m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0;
+        }
+
+        const modelList = Object.values(modelStats).sort((a, b) => {
+            if (modelSortBy === 'totalTokens') return b.totalTokens - a.totalTokens;
+            if (modelSortBy === 'cacheHitRate') return b.cacheHitRate - a.cacheHitRate;
+            if (modelSortBy === 'requestCount') return b.requestCount - a.requestCount;
+            return b.totalCost - a.totalCost;
+        });
+        const maxModelCost = modelList.length > 0 ? Math.max(...modelList.map(m => m.totalCost)) : 1;
 
         const dailyArr = Object.values(dailyMap);
         dailyArr.sort((a, b) => sortOrder === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date));
@@ -168,8 +179,7 @@ export class DataProcessor {
                 outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
                 cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
                 cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
-                cacheHitRate: m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0,
-                cacheHitRateFormatted: `${((m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0) * 100).toFixed(1)}%`,
+                cacheHitRateFormatted: `${(m.cacheHitRate * 100).toFixed(1)}%`,
                 totalTokensFormatted: formatTokens(m.totalTokens, tokenFormat),
             })),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,

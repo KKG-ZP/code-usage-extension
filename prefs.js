@@ -524,6 +524,25 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         displayGroup.add(sortOrderRow);
 
+        const modelSortByRow = new Adw.ComboRow({
+            title: _('模型排序'),
+            subtitle: _('模型列表的排序依据'),
+        });
+        const modelSortModel = new Gtk.StringList();
+        modelSortModel.append(_('金额（从高到低）'));
+        modelSortModel.append(_('使用总量（从多到少）'));
+        modelSortModel.append(_('命中率（从高到低）'));
+        modelSortModel.append(_('请求数（从多到少）'));
+        modelSortByRow.set_model(modelSortModel);
+        const modelSortOptions = ['cost', 'totalTokens', 'cacheHitRate', 'requestCount'];
+        const currentModelSort = settings.get_string('model-sort-by');
+        const modelSortIndex = modelSortOptions.indexOf(currentModelSort);
+        modelSortByRow.set_selected(modelSortIndex >= 0 ? modelSortIndex : 0);
+        modelSortByRow.connect('notify::selected', () => {
+            settings.set_string('model-sort-by', modelSortOptions[modelSortByRow.get_selected()]);
+        });
+        displayGroup.add(modelSortByRow);
+
         const debugGroup = new Adw.PreferencesGroup({
             title: _('调试'),
             description: _('调试选项'),
