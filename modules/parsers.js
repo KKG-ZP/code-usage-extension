@@ -447,32 +447,109 @@ export function parseCodeBuffFile(content, filePath, agent) {
 }
 
 // ═══════════════════════════════════════
+// Kiro CLI sessions
+// ═══════════════════════════════════════
+export function parseKiroCliSessionFile(content, filePath, agent) {
+    try {
+        const session = JSON.parse(content);
+        const metadata = session.session_state?.conversation_metadata;
+        const turns = Array.isArray(metadata?.user_turn_metadatas)
+            ? metadata.user_turn_metadatas : [];
+        if (turns.length === 0) return [];
+
+        const modelInfo = session.session_state?.rts_model_state?.model_info || {};
+        const rawModel = modelInfo.model_id || modelInfo.model_name || 'kiro-cli-credit';
+        const model = _kiroCreditModel(rawModel);
+        const sessionId = _kiroSessionIdFromPath(filePath);
+        const entries = [];
+
+        for (let index = 0; index < turns.length; index++) {
+            const turn = turns[index] || {};
+            const credit = _kiroMeteringValue(turn.metering_usage, 'credit');
+            const inputTokens = turn.input_token_count || 0;
+            const outputTokens = turn.output_token_count || 0;
+            const timestamp = turn.end_timestamp || turn.result?.Ok?.meta?.timestamp ||
+                session.updated_at || session.created_at;
+
+            if (!credit && !inputTokens && !outputTokens) continue;
+
+            entries.push({
+                date: _extractDate(timestamp),
+                model,
+                inputTokens,
+                outputTokens: outputTokens || credit,
+                cacheCreationTokens: 0,
+                cacheReadTokens: 0,
+                costUSD: null,
+                meteringCredits: credit,
+                _dedupeKey: `kiro:${sessionId}:${index}:${timestamp || ''}`,
+            });
+        }
+
+        return entries;
+    } catch {
+        return [];
+    }
+}
+
+function _kiroMeteringValue(items, unit) {
+    if (!Array.isArray(items)) return 0;
+    let total = 0;
+    for (const item of items) {
+        if (!item || item.unit !== unit) continue;
+        const value = Number(item.value);
+        if (Number.isFinite(value)) total += value;
+    }
+    return total;
+}
+
+function _kiroCreditModel(rawModel) {
+    const suffix = rawModel ? String(rawModel) : 'kiro';
+    return `kiro-cli-credit/${suffix}`;
+}
+
+function _kiroSessionIdFromPath(filePath) {
+    if (!filePath) return 'kiro';
+    const base = String(filePath).split('/').pop() || 'kiro';
+    return base.replace(/\.json$/, '') || 'kiro';
+}
+
+// ═══════════════════════════════════════
 // SQLite agents (OpenCode, Goose, Hermes, Kilo)
 // ═══════════════════════════════════════
 export async function parseSQLiteAgent(agent, dbPath, config) {
+    try {
+        const sqlite3 = _findSqlite3();
+        if (!sqlite3) return [];
+
+        let sql;
+
+        if (agent === 'opencode' || agent === 'kilo') {
+            sql = "SELECT data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
+        } else if (agent === 'goose') {
+            sql = 'SELECT id, model_config_json, provider_name, created_at, accumulated_input_tokens, accumulated_output_tickets, total_tokens FROM sessions';
+        } else if (agent === 'hermes') {
+            sql = 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions';
+        } else {
+            return [];
+        }
+
+        const rows = await _querySqliteRows(sqlite3, dbPath, sql);
+        const entries = [];
+        for (const row of rows) {
+            const entry = _parseSQLiteRow(agent, row);
+            if (entry) entries.push(entry);
+        }
+        return entries;
+    } catch {
+        return [];
+    }
+}
+
+function _querySqliteRows(sqlite3, dbPath, sql) {
     return new Promise((resolve) => {
         try {
-            const sqlite3 = _findSqlite3();
-            if (!sqlite3) {
-                resolve([]);
-                return;
-            }
-
-            let sql;
-
-            if (agent === 'opencode' || agent === 'kilo') {
-                sql = "SELECT data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
-            } else if (agent === 'goose') {
-                sql = 'SELECT id, model_config_json, provider_name, created_at, accumulated_input_tokens, accumulated_output_tickets, total_tokens FROM sessions';
-            } else if (agent === 'hermes') {
-                sql = 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions';
-            } else {
-                resolve([]);
-                return;
-            }
-
             const argv = [sqlite3, '-json', dbPath, sql];
-
             const subprocess = Gio.Subprocess.new(
                 argv,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
@@ -482,21 +559,12 @@ export async function parseSQLiteAgent(agent, dbPath, config) {
                 try {
                     const [ok, stdout, stderr] = proc.communicate_utf8_finish(result);
                     if (!ok || !stdout) { resolve([]); return; }
-
-                    const rows = JSON.parse(stdout.trim());
-                    const entries = [];
-
-                    for (const row of rows) {
-                        const entry = _parseSQLiteRow(agent, row);
-                        if (entry) entries.push(entry);
-                    }
-
-                    resolve(entries);
-                } catch (e) {
+                    resolve(JSON.parse(stdout.trim()));
+                } catch {
                     resolve([]);
                 }
             });
-        } catch (e) {
+        } catch {
             resolve([]);
         }
     });

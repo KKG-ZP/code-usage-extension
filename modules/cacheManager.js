@@ -17,7 +17,7 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 import {
-    parseGeminiFile, parseAmpFile, parseCodeBuffFile, parseSQLiteAgent,
+    parseGeminiFile, parseAmpFile, parseCodeBuffFile, parseKiroCliSessionFile, parseSQLiteAgent,
 } from './parsers.js';
 
 export const IDLE_THRESHOLD_MS = 120 * 1000;
@@ -36,7 +36,8 @@ function _classifyAgent(config) {
     if (config.sqlite) return 'sqlite';
     if (config.parse === parseGeminiFile ||
         config.parse === parseAmpFile ||
-        config.parse === parseCodeBuffFile) {
+        config.parse === parseCodeBuffFile ||
+        config.parse === parseKiroCliSessionFile) {
         return 'whole-file';
     }
     return 'jsonl';
@@ -81,10 +82,13 @@ export class FileCacheManager {
             const config = this._agentConfigs[agent];
             if (!config) continue;
 
-            const fileType = _classifyAgent(config);
-            const files = this._collectFilesForAgent(agent, config, fileType);
+            const defaultFileType = _classifyAgent(config);
+            const files = this._collectFilesForAgent(agent, config, defaultFileType);
 
             for (const info of files) {
+                const fileType = info.fileType || defaultFileType;
+                const parserConfig = info.config || config;
+
                 seenPaths.add(info.path);
                 if (info.mtimeMs > maxMtimeMs) maxMtimeMs = info.mtimeMs;
 
@@ -97,7 +101,7 @@ export class FileCacheManager {
 
                 try {
                     if (fileType === 'sqlite') {
-                        const entries = await parseSQLiteAgent(agent, info.path, config);
+                        const entries = await parseSQLiteAgent(agent, info.path, parserConfig);
                         this._fileCache.set(info.path, {
                             agent,
                             fileType,
@@ -108,7 +112,7 @@ export class FileCacheManager {
                             entries,
                         });
                     } else if (decision === 'incremental') {
-                        const result = this._readJsonlIncremental(cached, info, agent, config);
+                        const result = this._readJsonlIncremental(cached, info, agent, parserConfig);
                         bytesRead += result.bytesRead;
                         if (result.mode === 'incremental') incrementalCount += 1;
                         // Mutate the cache entry in place; entries array is owned
@@ -123,7 +127,7 @@ export class FileCacheManager {
                         // in-place rewrite where size matches but mtime advanced.
                         const content = this._readWholeFile(info.path);
                         bytesRead += content.byteLength;
-                        const parsed = this._parseSnapshot(content.text, info.path, agent, config, fileType);
+                        const parsed = this._parseSnapshot(content.text, info.path, agent, parserConfig, fileType);
                         this._fileCache.set(info.path, {
                             agent,
                             fileType,
@@ -193,8 +197,13 @@ export class FileCacheManager {
             return this._mergedEntries;
         }
         const all = [];
+        const seenDedupeKeys = new Set();
         for (const cached of this._fileCache.values()) {
             for (const entry of cached.entries) {
+                if (entry._dedupeKey) {
+                    if (seenDedupeKeys.has(entry._dedupeKey)) continue;
+                    seenDedupeKeys.add(entry._dedupeKey);
+                }
                 entry._agent = cached.agent;
                 all.push(entry);
             }
@@ -226,6 +235,15 @@ export class FileCacheManager {
         const dirs = config.dirs();
 
         if (fileType === 'sqlite') {
+            if (config.dbPaths) {
+                for (const dbPath of config.dbPaths()) {
+                    const stat = this._statSqliteWithSidecars(dbPath);
+                    if (stat) {
+                        out.push({ path: dbPath, mtimeMs: stat.mtimeMs, size: stat.size });
+                    }
+                }
+            }
+
             for (const dirPath of dirs) {
                 for (const dbFile of config.dbFiles) {
                     const dbPath = GLib.build_filenamev([dirPath, dbFile]);
@@ -235,6 +253,27 @@ export class FileCacheManager {
                     }
                 }
             }
+
+            if (config.archiveDirs && config.archiveParse) {
+                const archiveConfig = { parse: config.archiveParse };
+                const archiveFiles = [];
+                for (const dirPath of config.archiveDirs()) {
+                    this._scanDir(
+                        dirPath,
+                        config.archivePattern || /\.json$/,
+                        config.archiveRecursive || false,
+                        archiveFiles,
+                    );
+                }
+                for (const archive of archiveFiles) {
+                    out.push({
+                        ...archive,
+                        fileType: 'whole-file',
+                        config: archiveConfig,
+                    });
+                }
+            }
+
             return out;
         }
 

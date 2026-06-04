@@ -5,7 +5,8 @@
 // incremental parsing live in FileCacheManager — DataSource only forwards.
 //
 // Supported: Claude Code, Codex, Gemini, Kimi, OpenClaw, PI, Qwen, Copilot,
-// Amp, CodeBuff, plus SQLite-backed agents (OpenCode, Goose, Hermes, Kilo)
+// Amp, CodeBuff, Kiro CLI, plus SQLite-backed agents (OpenCode, Goose,
+// Hermes, Kilo)
 // via the optional sqlite3 CLI.
 
 import GLib from 'gi://GLib';
@@ -15,8 +16,18 @@ import {
     parseCodexLine, parseGeminiFile, parseKimiLine,
     parseOpenClawLine, parsePILine, parseQwenLine,
     parseCopilotLine, parseAmpFile, parseCodeBuffFile,
+    parseKiroCliSessionFile,
 } from './parsers.js';
 import { FileCacheManager } from './cacheManager.js';
+
+function _expandHome(path) {
+    if (!path) return path;
+    if (path === '~') return GLib.get_home_dir();
+    if (path.startsWith('~/')) {
+        return GLib.build_filenamev([GLib.get_home_dir(), path.slice(2)]);
+    }
+    return path;
+}
 
 const AGENT_CONFIGS = {
     claude: {
@@ -151,6 +162,21 @@ const AGENT_CONFIGS = {
         pattern: /^chat-messages\.json$/,
         parse: parseCodeBuffFile,
         recursive: true,
+    },
+    kiro: {
+        name: 'Kiro CLI',
+        appType: 'kiro',
+        dirs: () => {
+            const sessionsDir = GLib.getenv('KIRO_CLI_SESSIONS_DIR');
+            if (sessionsDir) return [_expandHome(sessionsDir)];
+
+            const kiroHome = GLib.getenv('KIRO_HOME') ||
+                GLib.build_filenamev([GLib.get_home_dir(), '.kiro']);
+            return [GLib.build_filenamev([_expandHome(kiroHome), 'sessions', 'cli'])];
+        },
+        pattern: /\.json$/,
+        parse: parseKiroCliSessionFile,
+        recursive: false,
     },
     opencode: {
         name: 'OpenCode',

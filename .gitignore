@@ -7,6 +7,10 @@ schemas/gschemas.compiled
 # IDE / editor
 .vscode/
 .idea/
+.claude/
+.codex/
+.qoder/
+.zread/
 
 # OS
 .DS_Store
