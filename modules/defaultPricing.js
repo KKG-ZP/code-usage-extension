@@ -20,6 +20,7 @@ export const DEFAULT_PRICING = {
     'claude-3-sonnet-20240229': { displayName: 'Claude 3 Sonnet', input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
     'claude-3-haiku-20240307': { displayName: 'Claude 3 Haiku', input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.30 },
     'claude-instant-1.2': { displayName: 'Claude Instant 1.2', input: 0.80, output: 2.40, cacheRead: 0, cacheWrite: 0 },
+    'claude-mythos-5': { displayName: 'Claude Mythos 5', input: 10, output: 50, cacheRead: 1.00, cacheWrite: 12.50 },
 
     // === GPT-5.x Series ===
     'gpt-5.5': { displayName: 'GPT-5.5', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
@@ -99,6 +100,7 @@ export const DEFAULT_PRICING = {
     'kimi-k2-turbo': { displayName: 'Kimi K2 Turbo', input: 8.0475, output: 58.435, cacheRead: 1.015, cacheWrite: 0, currency: 'CNY' },
     'kimi-k2.5': { displayName: 'Kimi K2.5', input: 4.00, output: 21.00, cacheRead: 0.70, cacheWrite: 0, currency: 'CNY' },
     'kimi-k2.6': { displayName: 'Kimi K2.6', input: 6.5, output: 27.00, cacheRead: 1.10, cacheWrite: 0, currency: 'CNY' },
+    'kimi-k2.7-code': { displayName: 'Kimi K2.7 Code', input: 6.5, output: 27, cacheRead: 1.3, cacheWrite: 0, currency: 'CNY' },
     'minimax-m2.1': { displayName: 'MiniMax M2.1', input: 2.1, output: 8.4, cacheRead: 0.21, cacheWrite: 2.625, currency: 'CNY' },
     'minimax-m2.1-lightning': { displayName: 'MiniMax M2.1 Lightning', input: 1.9575, output: 16.8925, cacheRead: 0.2175, cacheWrite: 0, currency: 'CNY' },
     'minimax-m2': { displayName: 'MiniMax M2', input: 1.9575, output: 6.8875, cacheRead: 0.2175, cacheWrite: 0, currency: 'CNY' },
@@ -113,6 +115,7 @@ export const DEFAULT_PRICING = {
     'glm-4.6': { displayName: 'GLM-4.6', input: 2, output: 8, cacheRead: 0.2, cacheWrite: 0, currency: 'CNY' },
     'glm-5': { displayName: 'GLM-5', input: 4, output: 18, cacheRead: 1, cacheWrite: 0, currency: 'CNY' },
     'glm-5.1': { displayName: 'GLM-5.1', input: 6, output: 24, cacheRead: 1.3, cacheWrite: 0, currency: 'CNY' },
+    'glm-5.2': { displayName: 'GLM-5.2', input: 8, output: 28, cacheRead: 2, cacheWrite: 0, currency: 'CNY' },
     'mimo-v2.5-free': { displayName: 'MiMo V2.5 Flash Free', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, currency: 'CNY' },
     'mimo-v2.5': { displayName: 'MiMo V2.5 Flash', input: 0.7, output: 2.1, cacheRead: 0.07, cacheWrite: 0, currency: 'CNY' },
     'mimo-v2.5-pro': { displayName: 'MiMo V2.5 Pro', input: 7, output: 21, cacheRead: 1.4, cacheWrite: 0, currency: 'CNY' },
