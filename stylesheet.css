@@ -18,7 +18,7 @@
 
 /* Hero stats section */
 .cu-hero-box {
-    padding: 8px 0;
+    padding: 2px 0;
     spacing: 8px;
     min-width: 280px;
     max-width: 340px;
@@ -88,7 +88,7 @@
 
 /* Model distribution */
 .cu-model-section {
-    padding: 4px 0;
+    padding: 0;
     spacing: 4px;
     min-width: 280px;
     max-width: 340px;
@@ -268,7 +268,7 @@
 
 /* Token contribution heatmap */
 .cu-heatmap-section {
-    padding: 4px 0;
+    padding: 0;
     spacing: 4px;
     min-width: 266px;
     max-width: 326px;
@@ -377,7 +377,7 @@
 
 /* Date range */
 .cu-date-section {
-    padding: 4px 0;
+    padding: 0;
     spacing: 4px;
     min-width: 280px;
 }
@@ -403,4 +403,11 @@
 .cu-date-button.active {
     background-color: #3584e4;
     color: #ffffff;
+}
+
+/* Tighten the vertical spacing between major popup sections */
+.popup-separator-menu-item {
+    padding: 0;
+    margin: 0;
+    min-height: 0;
 }

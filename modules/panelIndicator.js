@@ -467,7 +467,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         this._modelPageNext.connect('clicked', () => {
             const models = this._modelListData;
-            const totalPages = Math.ceil(models.length / 10);
+            const totalPages = Math.ceil(models.length / 9);
             if (this._modelPage < totalPages - 1) {
                 this._modelPage++;
                 this._renderModelList();
@@ -967,7 +967,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         const models = this._modelListData;
         const expanded = this._modelExpanded;
-        const pageSize = expanded ? 10 : 5;
+        const pageSize = expanded ? 9 : 5;
         // Defensive clamp: if the dataset has shrunk (e.g. agent filter or
         // sort order changed) and the stored page index would be empty,
         // fall back to the first page.
@@ -1167,9 +1167,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
             this._modelExpander.hide();
         }
 
-        if (expanded && models.length > 10) {
+        if (expanded && models.length > 9) {
             this._modelPaginationBox.show();
-            const totalPages = Math.ceil(models.length / 10);
+            const totalPages = Math.ceil(models.length / 9);
             this._modelPageLabel.set_text(`${page + 1}/${totalPages}`);
             if (page <= 0) {
                 this._modelPagePrev.add_style_class_name('cu-model-page-btn-disabled');
