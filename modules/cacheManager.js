@@ -23,6 +23,37 @@ import {
 export const IDLE_THRESHOLD_MS = 120 * 1000;
 
 const TEXT_DECODER = new TextDecoder('utf-8');
+const TEXT_ENCODER = new TextEncoder();
+const EMPTY_BYTES = new Uint8Array(0);
+
+/**
+ * Concatenate two Uint8Arrays into a fresh copy. Used by the incremental
+ * jsonl reader to glue the leftover bytes from the previous read with the
+ * newly-read bytes before decoding — we must decode the whole multibyte
+ * sequence at once, otherwise a UTF-8 character split across two reads is
+ * permanently corrupted into U+FFFD on both sides.
+ */
+function _concatBytes(a, b) {
+    if (!a || a.length === 0) return b ? b.slice() : EMPTY_BYTES.slice();
+    if (!b || b.length === 0) return a.slice();
+    const out = new Uint8Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+}
+
+/**
+ * Find the byte index of the last 0x0A (newline) in a UTF-8 byte buffer.
+ * This is safe to do on raw bytes because 0x0A never appears inside a
+ * multibyte UTF-8 continuation/lead byte (they are all >= 0x80), so a byte
+ * match unambiguously identifies a line boundary.
+ */
+function _lastNewlineByteIndex(bytes) {
+    for (let i = bytes.length - 1; i >= 0; i--) {
+        if (bytes[i] === 0x0A) return i;
+    }
+    return -1;
+}
 
 /**
  * Classify an agent config into one of three IO strategies. The classification
@@ -47,11 +78,16 @@ export class FileCacheManager {
     constructor(settings, agentConfigs) {
         this._settings = settings;
         this._agentConfigs = agentConfigs;
-        // filePath -> { agent, fileType, mtime, size, offset, pendingTail, entries }
+        // filePath -> { agent, fileType, mtime, size, offset, pendingTailBytes, entries }
         this._fileCache = new Map();
         this._mergedEntries = null;
         this._mergedDirty = true;
         this._lastActivityAt = 0;
+        // Serialise concurrent scanAndDiff calls. Without this, two async
+        // scans (e.g. a timer tick + a settings-change-triggered rescan)
+        // would interleave their mutations of _fileCache / _mergedEntries
+        // and corrupt each other. Each call awaits the previous one's tail.
+        this._scanChain = Promise.resolve();
     }
 
     _debug(msg) {
@@ -71,6 +107,17 @@ export class FileCacheManager {
      * actively producing logs or has gone idle.
      */
     async scanAndDiff(agents) {
+        // Queue this scan behind any in-flight one. The body mutates shared
+        // cache state (_fileCache, _mergedEntries) so concurrent execution
+        // would lose updates; serialising via a promise chain is enough
+        // because GJS is single-threaded and the body only awaits on the
+        // sqlite subprocess, not on any IO that could benefit from overlap.
+        const run = () => this._scanAndDiffImpl(agents);
+        this._scanChain = this._scanChain.then(run, run);
+        return this._scanChain;
+    }
+
+    async _scanAndDiffImpl(agents) {
         const seenPaths = new Set();
         let anyChanged = false;
         let maxMtimeMs = 0;
@@ -108,7 +155,7 @@ export class FileCacheManager {
                             mtimeMs: info.mtimeMs,
                             size: info.size,
                             offset: 0,
-                            pendingTail: '',
+                            pendingTailBytes: null,
                             entries,
                         });
                     } else if (decision === 'incremental') {
@@ -119,7 +166,7 @@ export class FileCacheManager {
                         // by the cache and merged-flat is rebuilt on demand.
                         cached.entries = result.entries;
                         cached.offset = result.offset;
-                        cached.pendingTail = result.pendingTail;
+                        cached.pendingTailBytes = result.pendingTailBytes;
                         cached.mtimeMs = info.mtimeMs;
                         cached.size = info.size;
                     } else {
@@ -134,7 +181,7 @@ export class FileCacheManager {
                             mtimeMs: info.mtimeMs,
                             size: info.size,
                             offset: content.byteLength,
-                            pendingTail: parsed.pendingTail,
+                            pendingTailBytes: parsed.pendingTailBytes,
                             entries: parsed.entries,
                         });
                     }
@@ -317,7 +364,7 @@ export class FileCacheManager {
         try {
             enumerator = dir.enumerate_children(
                 'standard::name,standard::type,time::modified,time::modified-usec,standard::size',
-                Gio.FileQueryInfoFlags.NONE,
+                Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
                 null,
             );
         } catch (e) {
@@ -389,10 +436,11 @@ export class FileCacheManager {
     /**
      * Read the tail bytes of a jsonl file that have been appended since the
      * last scan, parse newly-completed lines, and stash any unfinished
-     * trailing line in pendingTail for the next call. The caller is
-     * responsible for committing the returned values back to the cache.
+     * trailing line (as raw UTF-8 bytes, to survive multibyte splits) in
+     * pendingTailBytes for the next call. The caller is responsible for
+     * committing the returned values back to the cache.
      *
-     * Returns { entries, offset, pendingTail, bytesRead, mode } where mode is:
+     * Returns { entries, offset, pendingTailBytes, bytesRead, mode } where mode is:
      *   'incremental'      — normal append-only path, only new bytes read.
      *   'truncate-reload'  — file shrank or mtime regressed; full reload done.
      *   'fallback-reload'  — incremental read failed; fell back to full reload.
@@ -407,7 +455,7 @@ export class FileCacheManager {
             return {
                 entries: parsed.entries,
                 offset: content.byteLength,
-                pendingTail: parsed.pendingTail,
+                pendingTailBytes: parsed.pendingTailBytes,
                 bytesRead: content.byteLength,
                 mode: 'truncate-reload',
             };
@@ -420,13 +468,13 @@ export class FileCacheManager {
             return {
                 entries: cached.entries,
                 offset: cached.offset,
-                pendingTail: cached.pendingTail,
+                pendingTailBytes: cached.pendingTailBytes,
                 bytesRead: 0,
                 mode: 'incremental',
             };
         }
 
-        let newText;
+        let data;
         try {
             const file = Gio.File.new_for_path(info.path);
             const stream = file.read(null);
@@ -435,8 +483,7 @@ export class FileCacheManager {
                     stream.skip(cached.offset, null);
                 }
                 const bytes = stream.read_bytes(newBytes, null);
-                const data = bytes.toArray();
-                newText = TEXT_DECODER.decode(data);
+                data = bytes.toArray();
             } finally {
                 try { stream.close(null); } catch (_e) { /* ignore */ }
             }
@@ -447,25 +494,31 @@ export class FileCacheManager {
             return {
                 entries: parsed.entries,
                 offset: content.byteLength,
-                pendingTail: parsed.pendingTail,
+                pendingTailBytes: parsed.pendingTailBytes,
                 bytesRead: content.byteLength,
                 mode: 'fallback-reload',
             };
         }
 
-        // Glue any unfinished trailing line from last cycle to the front of
-        // the new bytes, then split out parseable [...lines] vs the new
-        // unfinished trailer (everything after the final \n).
-        const combined = cached.pendingTail + newText;
-        const lastNewline = combined.lastIndexOf('\n');
+        // Glue the leftover bytes from the previous read (which may end in
+        // the middle of a multibyte UTF-8 character) with the newly-read
+        // bytes, then find the last newline *on the raw byte stream* — 0x0A
+        // never appears inside a multibyte UTF-8 sequence, so this is a safe
+        // line boundary. Everything up to and including that newline is
+        // decodable as complete text; the bytes after it become the new
+        // pendingTailBytes, preserved verbatim for the next cycle.
+        const combinedBytes = _concatBytes(cached.pendingTailBytes, data);
+        const lastNewline = _lastNewlineByteIndex(combinedBytes);
 
-        let parseable, newPendingTail;
+        let parseable, newPendingTailBytes;
         if (lastNewline < 0) {
             parseable = '';
-            newPendingTail = combined;
+            // Copy so we don't pin the whole combinedBytes buffer alive.
+            newPendingTailBytes = combinedBytes.slice();
         } else {
-            parseable = combined.slice(0, lastNewline);
-            newPendingTail = combined.slice(lastNewline + 1);
+            parseable = TEXT_DECODER.decode(combinedBytes.subarray(0, lastNewline + 1));
+            newPendingTailBytes = combinedBytes.slice(lastNewline + 1);
+            if (newPendingTailBytes.length === 0) newPendingTailBytes = null;
         }
 
         const entries = cached.entries;
@@ -486,7 +539,7 @@ export class FileCacheManager {
         return {
             entries,
             offset: info.size,
-            pendingTail: newPendingTail,
+            pendingTailBytes: newPendingTailBytes,
             bytesRead: newBytes,
             mode: 'incremental',
         };
@@ -497,13 +550,13 @@ export class FileCacheManager {
      * unfinished trailing line so the next incremental read can complete it.
      */
     _parseSnapshot(content, filePath, agent, config, fileType) {
-        if (!content) return { entries: [], pendingTail: '' };
+        if (!content) return { entries: [], pendingTailBytes: null };
         if (fileType === 'whole-file') {
             try {
-                return { entries: config.parse(content, filePath, agent) || [], pendingTail: '' };
+                return { entries: config.parse(content, filePath, agent) || [], pendingTailBytes: null };
             } catch (e) {
                 this._debug(`whole-file parse failed ${filePath}: ${e.message}`);
-                return { entries: [], pendingTail: '' };
+                return { entries: [], pendingTailBytes: null };
             }
         }
 
@@ -539,7 +592,11 @@ export class FileCacheManager {
                 /* skip malformed line */
             }
         }
-        return { entries: out, pendingTail };
+        // Encode the trailing partial line back to raw UTF-8 bytes so the
+        // incremental reader can concatenate it with the next read's bytes
+        // and decode the whole multibyte sequence at once.
+        const pendingTailBytes = pendingTail ? TEXT_ENCODER.encode(pendingTail) : null;
+        return { entries: out, pendingTailBytes };
     }
 
     _looksLikeCompleteJsonLine(line) {

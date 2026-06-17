@@ -10,7 +10,7 @@ export default class CodeUsageExtension extends Extension {
             parent.remove_child(this._indicator);
         }
         let box;
-        if (pos.includes('left')) {
+        if (pos === 'left' || pos === 'far-left') {
             box = Main.panel._leftBox;
         } else if (pos === 'center') {
             box = Main.panel._centerBox;

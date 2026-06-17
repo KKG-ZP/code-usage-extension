@@ -13,6 +13,7 @@ import { DataSource } from './dataSource.js';
 import { DataProcessor } from './dataProcessor.js';
 import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
+import { setDebugEnabled as setParsersDebugEnabled } from './parsers.js';
 
 let _ = (s) => s;
 
@@ -103,12 +104,17 @@ function _attachHoverTooltip(actor, getText, shouldShow, options = {}) {
     });
 }
 
-const DATE_PRESETS = [
-    { id: 'today', label: _('今天') },
-    { id: '7d', label: _('7天') },
-    { id: '30d', label: _('30天') },
-    { id: 'all', label: _('全部') },
-];
+// Lazy getter so the labels are translated with the live `_` set by
+// enable() at call time, not at module-load time (when `_` is still the
+// identity function and gettext would be bypassed).
+function _getDatePresets() {
+    return [
+        { id: 'today', label: _('今天') },
+        { id: '7d', label: _('7天') },
+        { id: '30d', label: _('30天') },
+        { id: 'all', label: _('全部') },
+    ];
+}
 
 export const CodeUsageIndicator = GObject.registerClass(
 class CodeUsageIndicator extends PanelMenu.Button {
@@ -125,16 +131,26 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._refreshQueued = false;
         this._queuedShowPlaceholder = false;
         this._refreshGeneration = 0;
+        this._destroyed = false;
         this._modelExpanded = false;
         this._modelPage = 0;
         this._modelListData = [];
         this._modelListDirty = false;
         this._heatmapWeeksData = [];
+        this._heatmapDirty = false;
+        // Debounce source ids for settings-driven reprocessing / timer
+        // restarts. SpinRow drags fire dozens of 'changed' signals per
+        // second; without coalescing, each one triggers a full reprocess.
+        this._reprocessDebounceId = 0;
+        this._timerRestartDebounceId = 0;
         // Adaptive timer state: 'active' uses active-refresh-interval, 'idle'
         // uses idle-refresh-interval. Transitions happen after each scan
         // based on how long ago the most recent log write was.
         this._intervalState = 'idle';
         this._lastActivityAt = 0;
+        // Propagate the initial debug-mode flag to the parser layer so its
+        // swallowed exceptions become visible when the user opts in.
+        setParsersDebugEnabled(this._settings.get_boolean('debug-mode'));
 
         this._box = new St.BoxLayout({
             style_class: 'cu-panel-status-box',
@@ -172,6 +188,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 this._renderModelList();
                 this._modelListDirty = false;
             }
+            if (this._heatmapDirty) {
+                this._renderTokenHeatmap();
+                this._heatmapDirty = false;
+            }
             this._fullRefresh({ showPlaceholder: true });
         });
 
@@ -182,7 +202,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
             switch (key) {
                 case 'active-refresh-interval':
                 case 'idle-refresh-interval':
-                    this._restartTimer();
+                    this._debouncedRestartTimer();
                     break;
                 case 'display-mode':
                     this._updateDisplayMode();
@@ -206,9 +226,11 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 case 'custom-date-until':
                 case 'token-display-format':
                 case 'debug-mode':
+                    setParsersDebugEnabled(this._settings.get_boolean('debug-mode'));
                     // Pure presentation/aggregation changes → re-process the
-                    // cached entries with current settings, no IO.
-                    this._quickReprocess();
+                    // cached entries with current settings, no IO. Debounced
+                    // so a SpinRow drag (100+ signals/sec) does one reprocess.
+                    this._debouncedReprocess();
                     break;
                 default:
                     break;
@@ -569,7 +591,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
 
         this._dateButtons = {};
-        for (const preset of DATE_PRESETS) {
+        for (const preset of _getDatePresets()) {
             const btn = new St.Button({
                 style_class: 'cu-date-button',
                 reactive: true,
@@ -676,6 +698,33 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     /**
+     * Coalesce a burst of settings 'changed' signals (e.g. SpinRow drag)
+     * into a single reprocess after the user stops adjusting for 150ms.
+     */
+    _debouncedReprocess() {
+        if (this._reprocessDebounceId) {
+            GLib.source_remove(this._reprocessDebounceId);
+        }
+        this._reprocessDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+            this._reprocessDebounceId = 0;
+            this._quickReprocess();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /** Same idea for timer restarts — avoid stop/start churn mid-drag. */
+    _debouncedRestartTimer() {
+        if (this._timerRestartDebounceId) {
+            GLib.source_remove(this._timerRestartDebounceId);
+        }
+        this._timerRestartDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+            this._timerRestartDebounceId = 0;
+            this._restartTimer();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /**
      * After every scan, decide whether the agent has been "actively" writing
      * recently (within IDLE_THRESHOLD_MS) or is idle, and switch the timer
      * cadence if needed. Called from _fullRefresh after scanAndDiff completes
@@ -742,6 +791,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
             this._costCard._valueLabel.set_text('-');
         } finally {
             this._refreshing = false;
+            // If the indicator was destroyed while we were awaiting IO,
+            // the chips/buttons are gone — bail out before touching them
+            // and skip the queued recursion too.
+            if (this._destroyed) return;
             this._refreshButton.remove_style_pseudo_class('active');
             if (this._refreshQueued) {
                 const queuedShowPlaceholder = this._queuedShowPlaceholder;
@@ -799,10 +852,22 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _updateTokenHeatmap(data) {
         this._heatmapWeeksData = data.heatmapWeeks || [];
-
-        for (const child of this._heatmapGrid.get_children()) {
-            this._heatmapGrid.remove_child(child);
+        // Rebuilding 133 cells + hover signals is expensive and pointless
+        // while the popup is closed (the grid is not visible). Defer it to
+        // the menu open-state handler, mirroring _modelListDirty.
+        if (this.menu.isOpen) {
+            this._renderTokenHeatmap();
+            this._heatmapDirty = false;
+        } else {
+            this._heatmapDirty = true;
         }
+    }
+
+    _renderTokenHeatmap() {
+        // destroy_all_children (not remove_child) so connected hover signals
+        // are properly released, avoiding GObject↔JS reference cycles that
+        // GJS's GC can't reliably collect.
+        this._heatmapGrid.destroy_all_children();
 
         this._heatmapDetailLabel.set_text(this._defaultHeatmapDetail(this._heatmapWeeksData));
 
@@ -895,10 +960,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     _renderModelList() {
-        const children = this._modelListContainer.get_children();
-        for (const child of children) {
-            this._modelListContainer.remove_child(child);
-        }
+        // destroy_all_children (not remove_child) so the notify::width signal
+        // closures on progress bars are properly released, avoiding
+        // GObject↔JS reference cycles that GJS's GC can't reliably collect.
+        this._modelListContainer.destroy_all_children();
 
         const models = this._modelListData;
         const expanded = this._modelExpanded;
@@ -1122,7 +1187,20 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        // Mark destroyed first and bump the generation so any in-flight
+        // async _fullRefresh bails out at its next await resumption point
+        // instead of touching already-destroyed St widgets.
+        this._destroyed = true;
+        ++this._refreshGeneration;
         this._stopTimer();
+        if (this._reprocessDebounceId) {
+            GLib.source_remove(this._reprocessDebounceId);
+            this._reprocessDebounceId = 0;
+        }
+        if (this._timerRestartDebounceId) {
+            GLib.source_remove(this._timerRestartDebounceId);
+            this._timerRestartDebounceId = 0;
+        }
         if (this._menuOpenStateId) {
             try { this.menu.disconnect(this._menuOpenStateId); } catch (_e) { /* ignore */ }
             this._menuOpenStateId = null;

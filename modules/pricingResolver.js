@@ -169,6 +169,16 @@ export function resolvePricing(modelId, requestModel = null, overrides = {}) {
 }
 
 export function getPricingForModel(modelId, requestModel = null, overridesJson = '{}') {
+    // Pricing resolution is pure (same modelId + overrides always yields the
+    // same result) but expensive: each call normalises the id, BFS-expands up
+    // to 300 candidates, and prefix-matches against 90+ keys. With thousands
+    // of entries per refresh but only a handful of distinct models, a Map
+    // keyed on (modelId|overridesJson) collapses N calls into a few.
+    const cacheKey = `${modelId}\0${overridesJson}`;
+    if (_pricingCache.has(cacheKey)) {
+        return _pricingCache.get(cacheKey);
+    }
+
     let overrides = {};
     try {
         overrides = JSON.parse(overridesJson);
@@ -177,14 +187,23 @@ export function getPricingForModel(modelId, requestModel = null, overridesJson =
     }
 
     const pricing = resolvePricing(modelId, requestModel, overrides);
-    if (!pricing) return null;
+    let result = null;
+    if (pricing) {
+        result = {
+            displayName: pricing.displayName,
+            currency: pricing.currency || 'USD',
+            input: pricing.input ?? pricing.inputCostPerMillion ?? 0,
+            output: pricing.output ?? pricing.outputCostPerMillion ?? 0,
+            cacheRead: pricing.cacheRead ?? pricing.cacheReadCostPerMillion ?? 0,
+            cacheWrite: pricing.cacheWrite ?? pricing.cacheCreationCostPerMillion ?? pricing.cacheWriteCostPerMillion ?? 0,
+        };
+    }
 
-    return {
-        displayName: pricing.displayName,
-        currency: pricing.currency || 'USD',
-        input: pricing.input ?? pricing.inputCostPerMillion ?? 0,
-        output: pricing.output ?? pricing.outputCostPerMillion ?? 0,
-        cacheRead: pricing.cacheRead ?? pricing.cacheReadCostPerMillion ?? 0,
-        cacheWrite: pricing.cacheWrite ?? pricing.cacheCreationCostPerMillion ?? pricing.cacheWriteCostPerMillion ?? 0,
-    };
+    // Cap the cache to avoid unbounded growth if an adversary feeds thousands
+    // of distinct model ids; in practice the set is tiny (a dozen or so).
+    if (_pricingCache.size > 512) _pricingCache.clear();
+    _pricingCache.set(cacheKey, result);
+    return result;
 }
+
+const _pricingCache = new Map();

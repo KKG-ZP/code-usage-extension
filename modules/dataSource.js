@@ -38,10 +38,10 @@ const AGENT_CONFIGS = {
             const dirs = [];
             if (configDir) {
                 for (const d of configDir.split(',')) {
-                    dirs.push(GLib.build_filenamev([d.trim(), 'projects']));
+                    dirs.push(GLib.build_filenamev([_expandHome(d.trim()), 'projects']));
                 }
             }
-            const xdg = GLib.getenv('XDG_CONFIG_HOME') ||
+            const xdg = _expandHome(GLib.getenv('XDG_CONFIG_HOME')) ||
                 GLib.build_filenamev([GLib.get_home_dir(), '.config']);
             dirs.push(GLib.build_filenamev([xdg, 'claude', 'projects']));
             dirs.push(GLib.build_filenamev([GLib.get_home_dir(), '.claude', 'projects']));
@@ -55,7 +55,7 @@ const AGENT_CONFIGS = {
         name: 'Codex',
         appType: 'codex',
         dirs: () => {
-            const home = GLib.getenv('CODEX_HOME') || GLib.build_filenamev([GLib.get_home_dir(), '.codex']);
+            const home = _expandHome(GLib.getenv('CODEX_HOME')) || GLib.build_filenamev([GLib.get_home_dir(), '.codex']);
             return [
                 GLib.build_filenamev([home, 'sessions']),
                 GLib.build_filenamev([home, 'archived_sessions']),
@@ -69,7 +69,7 @@ const AGENT_CONFIGS = {
         name: 'Gemini CLI',
         appType: 'gemini',
         dirs: () => {
-            const d = GLib.getenv('GEMINI_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.gemini', 'tmp']);
+            const d = _expandHome(GLib.getenv('GEMINI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.gemini', 'tmp']);
             return [d];
         },
         pattern: /\.(json|jsonl)$/,
@@ -80,7 +80,7 @@ const AGENT_CONFIGS = {
         name: 'Kimi',
         appType: 'kimi',
         dirs: () => {
-            const d = GLib.getenv('KIMI_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.kimi']);
+            const d = _expandHome(GLib.getenv('KIMI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.kimi']);
             return [d];
         },
         pattern: /wire\.jsonl$/,
@@ -91,7 +91,7 @@ const AGENT_CONFIGS = {
         name: 'OpenClaw',
         appType: 'openclaw',
         dirs: () => {
-            const d = GLib.getenv('OPENCLAW_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.openclaw']);
+            const d = _expandHome(GLib.getenv('OPENCLAW_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.openclaw']);
             return [d];
         },
         pattern: /\.jsonl$/,
@@ -102,7 +102,7 @@ const AGENT_CONFIGS = {
         name: 'pi-agent',
         appType: 'pi',
         dirs: () => {
-            const d = GLib.getenv('PI_AGENT_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.pi', 'agent', 'sessions']);
+            const d = _expandHome(GLib.getenv('PI_AGENT_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.pi', 'agent', 'sessions']);
             return [d];
         },
         pattern: /\.jsonl$/,
@@ -113,7 +113,7 @@ const AGENT_CONFIGS = {
         name: 'Qwen',
         appType: 'qwen',
         dirs: () => {
-            const d = GLib.getenv('QWEN_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.qwen']);
+            const d = _expandHome(GLib.getenv('QWEN_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.qwen']);
             return [d];
         },
         pattern: /\.jsonl$/,
@@ -124,7 +124,7 @@ const AGENT_CONFIGS = {
         name: 'GitHub Copilot CLI',
         appType: 'copilot',
         dirs: () => {
-            const d = GLib.getenv('COPILOT_OTEL_FILE_EXPORTER_PATH');
+            const d = _expandHome(GLib.getenv('COPILOT_OTEL_FILE_EXPORTER_PATH'));
             if (d) return [d];
             const home = GLib.get_home_dir();
             return [
@@ -140,7 +140,7 @@ const AGENT_CONFIGS = {
         name: 'Amp',
         appType: 'amp',
         dirs: () => {
-            const d = GLib.getenv('AMP_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'amp']);
+            const d = _expandHome(GLib.getenv('AMP_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'amp']);
             return [GLib.build_filenamev([d, 'threads'])];
         },
         pattern: /\.json$/,
@@ -151,7 +151,7 @@ const AGENT_CONFIGS = {
         name: 'Codebuff',
         appType: 'codebuff',
         dirs: () => {
-            const d = GLib.getenv('CODEBUFF_DATA_DIR');
+            const d = _expandHome(GLib.getenv('CODEBUFF_DATA_DIR'));
             const dirs = [];
             if (d) {
                 dirs.push(GLib.build_filenamev([d, 'projects']));
@@ -170,9 +170,9 @@ const AGENT_CONFIGS = {
             const sessionsDir = GLib.getenv('KIRO_CLI_SESSIONS_DIR');
             if (sessionsDir) return [_expandHome(sessionsDir)];
 
-            const kiroHome = GLib.getenv('KIRO_HOME') ||
+            const kiroHome = _expandHome(GLib.getenv('KIRO_HOME')) ||
                 GLib.build_filenamev([GLib.get_home_dir(), '.kiro']);
-            return [GLib.build_filenamev([_expandHome(kiroHome), 'sessions', 'cli'])];
+            return [GLib.build_filenamev([kiroHome, 'sessions', 'cli'])];
         },
         pattern: /\.json$/,
         parse: parseKiroCliSessionFile,
@@ -182,7 +182,7 @@ const AGENT_CONFIGS = {
         name: 'OpenCode',
         appType: 'opencode',
         dirs: () => {
-            const d = GLib.getenv('OPENCODE_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'opencode']);
+            const d = _expandHome(GLib.getenv('OPENCODE_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'opencode']);
             return [d];
         },
         pattern: null,
@@ -193,7 +193,7 @@ const AGENT_CONFIGS = {
         name: 'Goose',
         appType: 'goose',
         dirs: () => {
-            const root = GLib.getenv('GOOSE_PATH_ROOT') || GLib.get_home_dir();
+            const root = _expandHome(GLib.getenv('GOOSE_PATH_ROOT')) || GLib.get_home_dir();
             const dirs = [];
             dirs.push(GLib.build_filenamev([root, '.local', 'share', 'goose', 'sessions']));
             dirs.push(GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'Block', 'goose', 'sessions']));
@@ -207,7 +207,7 @@ const AGENT_CONFIGS = {
         name: 'Hermes',
         appType: 'hermes',
         dirs: () => {
-            const base = GLib.getenv('HERMES_HOME') || GLib.build_filenamev([GLib.get_home_dir(), '.hermes']);
+            const base = _expandHome(GLib.getenv('HERMES_HOME')) || GLib.build_filenamev([GLib.get_home_dir(), '.hermes']);
             const dirs = [base];
             const profilesDir = GLib.build_filenamev([base, 'profiles']);
             const dir = Gio.File.new_for_path(profilesDir);
@@ -218,12 +218,15 @@ const AGENT_CONFIGS = {
                         Gio.FileQueryInfoFlags.NONE, null
                     );
                     let info;
-                    while ((info = enumerator.next_file(null)) !== null) {
-                        if (info.get_file_type() === Gio.FileType.DIRECTORY) {
-                            dirs.push(GLib.build_filenamev([profilesDir, info.get_name()]));
+                    try {
+                        while ((info = enumerator.next_file(null)) !== null) {
+                            if (info.get_file_type() === Gio.FileType.DIRECTORY) {
+                                dirs.push(GLib.build_filenamev([profilesDir, info.get_name()]));
+                            }
                         }
+                    } finally {
+                        try { enumerator.close(null); } catch (_e) { /* ignore */ }
                     }
-                    enumerator.close(null);
                 } catch { /* ignore */ }
             }
             return dirs;
@@ -236,7 +239,7 @@ const AGENT_CONFIGS = {
         name: 'Kilo',
         appType: 'kilo',
         dirs: () => {
-            const d = GLib.getenv('KILO_DATA_DIR') || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'kilo']);
+            const d = _expandHome(GLib.getenv('KILO_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'kilo']);
             return [d];
         },
         pattern: null,

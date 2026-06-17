@@ -7,6 +7,24 @@ import Gio from 'gi://Gio';
 let _sqlite3Path = null;
 let _sqlite3Checked = false;
 
+// Mirrors the extension's `debug-mode` setting so parser-layer failures
+// (which are otherwise swallowed to keep the panel alive) become visible.
+// Toggled via setDebugEnabled() from panelIndicator.
+let _debugEnabled = false;
+export function setDebugEnabled(enabled) {
+    _debugEnabled = !!enabled;
+}
+function _debug(msg) {
+    if (_debugEnabled) {
+        console.log(`Code Usage: ${msg}`);
+    }
+}
+
+// Hard cap for a single sqlite3 subprocess. Without it a corrupted/locked
+// database can hang the communicate_utf8 callback forever, which blocks the
+// serialised refresh pipeline and silently stops all updates.
+const SQLITE_TIMEOUT_MS = 10000;
+
 function _findSqlite3() {
     if (_sqlite3Checked) return _sqlite3Path;
     _sqlite3Checked = true;
@@ -487,7 +505,8 @@ export function parseKiroCliSessionFile(content, filePath, agent) {
         }
 
         return entries;
-    } catch {
+    } catch (e) {
+        _debug(`parseKiroCliSessionFile failed ${filePath}: ${e.message}`);
         return [];
     }
 }
@@ -527,7 +546,11 @@ export async function parseSQLiteAgent(agent, dbPath, config) {
         if (agent === 'opencode' || agent === 'kilo') {
             sql = "SELECT data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
         } else if (agent === 'goose') {
-            sql = 'SELECT id, model_config_json, provider_name, created_at, accumulated_input_tokens, accumulated_output_tickets, total_tokens FROM sessions';
+            // Column names per goose's documented CREATE TABLE sessions
+            // (block/goose session_manager.rs). The previous query used
+            // 'accumulated_output_tickets' (typo) and 'model_config_json'
+            // which caused a silent 'no such column' failure.
+            sql = 'SELECT id, model_config, provider_name, created_at, accumulated_input_tokens, accumulated_output_tokens, total_tokens FROM sessions';
         } else if (agent === 'hermes') {
             sql = 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions';
         } else {
@@ -541,32 +564,72 @@ export async function parseSQLiteAgent(agent, dbPath, config) {
             if (entry) entries.push(entry);
         }
         return entries;
-    } catch {
+    } catch (e) {
+        _debug(`parseSQLiteAgent failed ${agent} ${dbPath}: ${e.message}`);
         return [];
     }
 }
 
 function _querySqliteRows(sqlite3, dbPath, sql) {
     return new Promise((resolve) => {
+        let settled = false;
+        let timeoutId = 0;
+
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            if (timeoutId) {
+                GLib.source_remove(timeoutId);
+                timeoutId = 0;
+            }
+            resolve(value);
+        };
+
+        let subprocess;
         try {
             const argv = [sqlite3, '-json', dbPath, sql];
-            const subprocess = Gio.Subprocess.new(
+            subprocess = Gio.Subprocess.new(
                 argv,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
-
-            subprocess.communicate_utf8_async(null, null, (proc, result) => {
-                try {
-                    const [ok, stdout, stderr] = proc.communicate_utf8_finish(result);
-                    if (!ok || !stdout) { resolve([]); return; }
-                    resolve(JSON.parse(stdout.trim()));
-                } catch {
-                    resolve([]);
-                }
-            });
-        } catch {
-            resolve([]);
+        } catch (e) {
+            _debug(`sqlite3 spawn failed ${dbPath}: ${e.message}`);
+            finish([]);
+            return;
         }
+
+        // Guard against a hung/corrupted database: force-kill the process and
+        // resolve with an empty result so the caller doesn't wait forever.
+        timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, SQLITE_TIMEOUT_MS, () => {
+            timeoutId = 0;
+            try { subprocess.force_exit(); } catch (_e) { /* ignore */ }
+            _debug(`sqlite3 timed out after ${SQLITE_TIMEOUT_MS}ms ${dbPath}`);
+            finish([]);
+            return GLib.SOURCE_REMOVE;
+        });
+
+        subprocess.communicate_utf8_async(null, null, (proc, result) => {
+            try {
+                const [ok, stdout, stderr] = proc.communicate_utf8_finish(result);
+                if (!ok || !stdout) {
+                    if (stderr && stderr.trim()) {
+                        _debug(`sqlite3 stderr ${dbPath}: ${stderr.trim()}`);
+                    }
+                    finish([]);
+                    return;
+                }
+                const parsed = JSON.parse(stdout.trim());
+                if (!Array.isArray(parsed)) {
+                    _debug(`sqlite3 returned non-array ${dbPath}: ${typeof parsed}`);
+                    finish([]);
+                    return;
+                }
+                finish(parsed);
+            } catch (e) {
+                _debug(`sqlite3 result parse failed ${dbPath}: ${e.message}`);
+                finish([]);
+            }
+        });
     });
 }
 
@@ -636,7 +699,11 @@ function _pick(obj, keys) {
 }
 
 function _extractDate(timestamp) {
-    if (!timestamp) return _formatLocalDate(new Date());
+    // No timestamp at all: return null so the caller can decide whether to
+    // drop the entry or attribute it to a known date. Defaulting to "today"
+    // silently inflates today's stats with historical entries that happen
+    // to lack a timestamp field.
+    if (!timestamp) return null;
 
     if (typeof timestamp === 'number') {
         const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
@@ -650,6 +717,14 @@ function _extractDate(timestamp) {
     }
 
     if (typeof timestamp === 'string') {
+        // date-only ISO strings (e.g. "2024-01-01") are parsed by the spec
+        // as UTC midnight. Using new Date() on them and then reading local
+        // getFullYear/getDate shifts the date by a day in any timezone west
+        // of UTC. Detect this form and construct a local date directly.
+        const dateOnly = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnly) {
+            return timestamp.slice(0, 10);
+        }
         const parsed = new Date(timestamp);
         if (!Number.isNaN(parsed.getTime())) {
             return _formatLocalDate(parsed);
@@ -657,7 +732,7 @@ function _extractDate(timestamp) {
         return timestamp.slice(0, 10);
     }
 
-    return _formatLocalDate(new Date());
+    return null;
 }
 
 function _formatLocalDate(date) {

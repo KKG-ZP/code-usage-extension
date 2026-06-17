@@ -23,7 +23,7 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
             icon_name: 'preferences-volumes-symbolic',
         });
         window.add(page2);
-        this._buildPricingPage(page2, settings);
+        this._buildPricingPage(page2, settings, window);
 
         const page3 = new Adw.PreferencesPage({
             title: _('高级'),
@@ -165,7 +165,11 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         sinceRow.set_text(settings.get_string('custom-date-since'));
         sinceRow.connect('apply', () => {
-            settings.set_string('custom-date-since', sinceRow.get_text());
+            const text = sinceRow.get_text().trim();
+            // Reject malformed dates so the downstream string comparison in
+            // DataProcessor._buildDateFilter stays meaningful.
+            if (text && !/^\d{4}-\d{2}-\d{2}$/.test(text)) return;
+            settings.set_string('custom-date-since', text);
         });
         dateGroup.add(sinceRow);
 
@@ -175,7 +179,9 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         untilRow.set_text(settings.get_string('custom-date-until'));
         untilRow.connect('apply', () => {
-            settings.set_string('custom-date-until', untilRow.get_text());
+            const text = untilRow.get_text().trim();
+            if (text && !/^\d{4}-\d{2}-\d{2}$/.test(text)) return;
+            settings.set_string('custom-date-until', text);
         });
         dateGroup.add(untilRow);
     }
@@ -240,7 +246,7 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         multiplierGroup.add(multiplierRow);
     }
 
-    _buildPricingPage(page, settings) {
+    _buildPricingPage(page, settings, window) {
         const infoGroup = new Adw.PreferencesGroup({
             title: _('模型定价'),
             description: _('管理模型价格覆盖。自定义定价优先于内置默认定价。'),
@@ -299,7 +305,13 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         };
 
         renderPricingList();
-        settings.connect('changed::price-overrides', renderPricingList);
+        // settings is a schema-level singleton that outlives the prefs
+        // window. If we don't disconnect on close, every open/close cycle
+        // stacks another handler that captures the destroyed overrideList.
+        const priceOverridesId = settings.connect('changed::price-overrides', renderPricingList);
+        window.connect('close-request', () => {
+            try { settings.disconnect(priceOverridesId); } catch (_e) { /* ignore */ }
+        });
 
         const addActionGroup = new Adw.PreferencesGroup({});
         page.add(addActionGroup);

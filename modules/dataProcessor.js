@@ -49,6 +49,9 @@ export class DataProcessor {
         const dateFilter = this._buildDateFilter(dateRange, customSince, customUntil);
 
         for (const entry of entries) {
+            // Entries without a parseable date (e.g. Kiro turns missing
+            // timestamp fields) are dropped rather than mis-attributed.
+            if (!entry.date) continue;
             if (!dateFilter(entry.date)) continue;
 
             const agent = entry._agent || 'claude';
@@ -69,8 +72,14 @@ export class DataProcessor {
                 || usage.cacheReadTokens > 0
                 || usage.cacheCreationTokens > 0;
             let entryCost = 0;
-            if (entry.costUSD != null && entry.costUSD > 0) {
-                entryCost = entry.costUSD * exchangeRate * costMultiplier;
+            if (entry.costUSD != null) {
+                // Guard against string/NaN costUSD from parsers: a single
+                // non-numeric value would poison every running total via
+                // NaN propagation. Coerce and validate before accumulating.
+                const rawCost = Number(entry.costUSD);
+                if (Number.isFinite(rawCost) && rawCost > 0) {
+                    entryCost = rawCost * exchangeRate * costMultiplier;
+                }
             } else if (pricing && hasUsageTokens) {
                 const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
                 entryCost = cost.totalCost;
@@ -146,7 +155,6 @@ export class DataProcessor {
             if (modelSortBy === 'requestCount') return b.requestCount - a.requestCount;
             return b.totalCost - a.totalCost;
         });
-        const maxModelCost = modelList.length > 0 ? Math.max(...modelList.map(m => m.totalCost)) : 1;
 
         const dailyArr = Object.values(dailyMap);
         dailyArr.sort((a, b) => sortOrder === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date));
@@ -196,14 +204,16 @@ export class DataProcessor {
             return (date) => date >= todayStr;
         }
         if (preset === '7d') {
+            // Include today as day 1: 7 calendar days total (today - 6 .. today).
             const sinceDate = new Date();
-            sinceDate.setDate(sinceDate.getDate() - 7);
+            sinceDate.setDate(sinceDate.getDate() - 6);
             const since = _formatLocalDate(sinceDate);
             return (date) => date >= since;
         }
         if (preset === '30d') {
+            // Include today as day 1: 30 calendar days total (today - 29 .. today).
             const sinceDate = new Date();
-            sinceDate.setDate(sinceDate.getDate() - 30);
+            sinceDate.setDate(sinceDate.getDate() - 29);
             const since = _formatLocalDate(sinceDate);
             return (date) => date >= since;
         }
