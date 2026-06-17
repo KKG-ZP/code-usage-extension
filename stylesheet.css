@@ -16,12 +16,18 @@
     color: #1a1a1a;
 }
 
+.cu-popup-content-width {
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+}
+
 /* Hero stats section */
 .cu-hero-box {
     padding: 2px 0;
     spacing: 8px;
     min-width: 280px;
-    max-width: 340px;
+    max-width: 280px;
 }
 
 .cu-stats-row {
@@ -91,7 +97,7 @@
     padding: 0;
     spacing: 4px;
     min-width: 280px;
-    max-width: 340px;
+    max-width: 280px;
 }
 
 .cu-model-list {
@@ -220,7 +226,7 @@
 }
 
 .cu-model-detail-col {
-    min-width: 90px;
+    min-width: 78px;
 }
 
 /* Token labels - bold and modern color palette */
@@ -270,8 +276,8 @@
 .cu-heatmap-section {
     padding: 0;
     spacing: 4px;
-    min-width: 266px;
-    max-width: 326px;
+    min-width: 280px;
+    max-width: 280px;
 }
 
 .cu-heatmap-header {
@@ -380,6 +386,7 @@
     padding: 0;
     spacing: 4px;
     min-width: 280px;
+    max-width: 280px;
 }
 
 .cu-date-button-row {
@@ -409,7 +416,7 @@
 .cu-page-tabs {
     spacing: 6px;
     min-width: 280px;
-    max-width: 340px;
+    max-width: 280px;
 }
 
 .cu-page-tab {
@@ -434,7 +441,7 @@
 .cu-weekly-page,
 .cu-achievements-page {
     min-width: 280px;
-    max-width: 340px;
+    max-width: 280px;
     spacing: 8px;
 }
 
@@ -454,6 +461,27 @@
 
 .cu-weekly-stats-row {
     spacing: 8px;
+}
+
+.cu-weekly-stat-card {
+    width: 88px;
+    min-width: 88px;
+    max-width: 88px;
+    padding: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.cu-weekly-stat-value {
+    height: 22px;
+    min-height: 22px;
+    max-height: 22px;
+}
+
+.cu-weekly-stat-label {
+    height: 15px;
+    min-height: 15px;
+    max-height: 15px;
 }
 
 .cu-weekly-daily-bars {
@@ -485,7 +513,7 @@
 }
 
 .cu-weekly-day-value {
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 600;
     color: #6b7280;
 }
@@ -543,7 +571,7 @@
 }
 
 .cu-achievement-status {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
     color: #6d28d9;
 }

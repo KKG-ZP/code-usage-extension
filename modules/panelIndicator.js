@@ -331,7 +331,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _createMenu() {
         const heroBox = new St.BoxLayout({
-            style_class: 'cu-hero-box',
+            style_class: 'cu-hero-box cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -412,7 +412,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._overviewPageItems.push(overviewSep1);
 
         const modelSectionBox = new St.BoxLayout({
-            style_class: 'cu-model-section',
+            style_class: 'cu-model-section cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -503,7 +503,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._overviewPageItems.push(overviewSep2);
 
         const heatmapBox = new St.BoxLayout({
-            style_class: 'cu-heatmap-section',
+            style_class: 'cu-heatmap-section cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -590,7 +590,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._overviewPageItems.push(overviewSep3);
 
         const dateBox = new St.BoxLayout({
-            style_class: 'cu-date-section',
+            style_class: 'cu-date-section cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -659,7 +659,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _createPageTabs() {
         const tabs = new St.BoxLayout({
-            style_class: 'cu-page-tabs',
+            style_class: 'cu-page-tabs cu-popup-content-width',
             vertical: false,
             x_expand: true,
         });
@@ -707,7 +707,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _createWeeklyPage() {
         const pageBox = new St.BoxLayout({
-            style_class: 'cu-weekly-page',
+            style_class: 'cu-weekly-page cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -730,12 +730,19 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: false,
             x_expand: true,
         });
-        this._weeklyTokenCard = this._createStatCard(_('Token'), '0', 'cu-stat-tokens');
-        this._weeklyCostCard = this._createStatCard(_('费用'), '¥0.00', 'cu-stat-cost');
-        this._weeklyActiveCard = this._createStatCard(_('活跃'), '0天', 'cu-stat-requests');
+        this._weeklyActiveCard = this._createStatCard(_('活跃天数'), '0', 'cu-stat-requests cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
+        this._weeklyTokenCard = this._createStatCard(_('Token'), '0', 'cu-stat-tokens cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
+        this._weeklyCostCard = this._createStatCard(_('费用'), '¥0.00', 'cu-stat-cost cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
+        for (const card of [this._weeklyActiveCard, this._weeklyTokenCard, this._weeklyCostCard]) {
+            card.set_width(88);
+            card._valueLabel.add_style_class_name('cu-weekly-stat-value');
+            card._valueLabel.set_height(22);
+            card._label.add_style_class_name('cu-weekly-stat-label');
+            card._label.set_height(15);
+        }
+        statsRow.add_child(this._weeklyActiveCard);
         statsRow.add_child(this._weeklyTokenCard);
         statsRow.add_child(this._weeklyCostCard);
-        statsRow.add_child(this._weeklyActiveCard);
         pageBox.add_child(statsRow);
 
         this._weeklyDailyBars = new St.BoxLayout({
@@ -769,7 +776,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     _createAchievementsPage() {
         const pageBox = new St.BoxLayout({
-            style_class: 'cu-achievements-page',
+            style_class: 'cu-achievements-page cu-popup-content-width',
             vertical: true,
             x_expand: true,
         });
@@ -802,25 +809,26 @@ class CodeUsageIndicator extends PanelMenu.Button {
         return item;
     }
 
-    _createStatCard(labelText, valueText, extraClass) {
+    _createStatCard(labelText, valueText, extraClass, labelAlign = Clutter.ActorAlign.START, xExpand = true) {
         const card = new St.BoxLayout({
             style_class: `cu-stat-card ${extraClass}`,
             vertical: true,
-            x_expand: true,
+            x_expand: xExpand,
         });
         const value = new St.Label({
             text: valueText,
             style_class: 'cu-stat-value',
-            x_align: Clutter.ActorAlign.START,
+            x_align: labelAlign,
         });
         const label = new St.Label({
             text: labelText,
             style_class: 'cu-stat-label',
-            x_align: Clutter.ActorAlign.START,
+            x_align: labelAlign,
         });
         card.add_child(value);
         card.add_child(label);
         card._valueLabel = value;
+        card._label = label;
         return card;
     }
 
@@ -1043,7 +1051,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._weeklySubtitleLabel.set_text(report.subtitle || '');
         this._weeklyTokenCard._valueLabel.set_text(report.totalTokensFormatted || '0');
         this._weeklyCostCard._valueLabel.set_text(report.totalCostFormatted || '¥0.00');
-        this._weeklyActiveCard._valueLabel.set_text(`${report.activeDays || 0}${_('天')}`);
+        this._weeklyActiveCard._valueLabel.set_text(`${report.activeDays || 0}`);
 
         this._weeklyDailyBars.destroy_all_children();
         for (const day of report.daily || []) {

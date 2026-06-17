@@ -8,7 +8,7 @@ export function setGettext(fn) {
     _ = fn;
 }
 
-const HEATMAP_WEEK_COUNT = 19;
+const HEATMAP_WEEK_COUNT = 16;
 const ACHIEVEMENT_HISTORY_WEEKS = 8;
 
 export class DataProcessor {
