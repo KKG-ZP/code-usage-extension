@@ -81,6 +81,11 @@
       <summary>调试模式</summary>
       <description>启用调试日志输出</description>
     </key>
+    <key name="achievement-state" type="s">
+      <default>'{}'</default>
+      <summary>成就状态</summary>
+      <description>已解锁周报成就的持久化状态，JSON 格式。</description>
+    </key>
     <key name="panel-position" type="s">
       <default>'right'</default>
       <summary>面板位置</summary>
