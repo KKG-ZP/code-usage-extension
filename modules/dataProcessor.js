@@ -23,6 +23,7 @@ export class DataProcessor {
         const overridesJson = this._settings.get_string('price-overrides');
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
+        const aliasMap = _parseAliasMap(this._settings.get_string('model-aliases'));
 
         if (!entries || entries.length === 0) {
             return this._emptyResult(heatmapWeeks);
@@ -56,11 +57,12 @@ export class DataProcessor {
 
             const {
                 agent,
+                model: canonicalModel,
                 pricing,
                 usage,
                 tokenAccounting,
                 entryCost,
-            } = this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate });
+            } = this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap });
 
             totalRequests += 1;
             totalInputTokens += usage.inputTokens;
@@ -71,7 +73,7 @@ export class DataProcessor {
             totalCacheHitDenominator += tokenAccounting.cacheHitDenominator;
             totalCost += entryCost;
 
-            const modelKey = entry.model || 'unknown';
+            const modelKey = canonicalModel || entry.model || 'unknown';
             const displayName = pricing ? (pricing.displayName || modelKey) : modelKey;
             const compositeKey = `${agent}:${modelKey}`;
 
@@ -173,10 +175,17 @@ export class DataProcessor {
         };
     }
 
-    _entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate }) {
+    _entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap }) {
         const agent = entry._agent || 'claude';
         const appType = AGENT_APP_TYPE_MAP[agent] || agent;
-        const pricing = getPricingForModel(entry.model, null, overridesJson);
+        // Apply the user's alias→main-model map for STATISTICAL GROUPING.
+        // canonicalModel drives the compositeKey so aliases merge into the
+        // main model's card; pricing is also resolved on the canonical id so
+        // displayName comes from the main model. entry.model itself is NOT
+        // mutated — cacheManager.getMergedEntries returns cached references,
+        // and rewriting them would pollute the read-only cache.
+        const canonicalModel = (aliasMap && aliasMap[entry.model]) || entry.model;
+        const pricing = getPricingForModel(canonicalModel, null, overridesJson);
         const usage = {
             inputTokens: entry.inputTokens || 0,
             outputTokens: entry.outputTokens || 0,
@@ -216,6 +225,7 @@ export class DataProcessor {
         return {
             agent,
             appType,
+            model: canonicalModel,
             pricing,
             usage,
             tokenAccounting,
@@ -232,7 +242,8 @@ export class DataProcessor {
         const costMultiplier = this._settings.get_double('cost-multiplier');
         const overridesJson = this._settings.get_string('price-overrides');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
-        return this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate });
+        const aliasMap = _parseAliasMap(this._settings.get_string('model-aliases'));
+        return this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap });
     }
 
     _buildDateFilter(preset, customSince, customUntil) {
@@ -396,4 +407,19 @@ export function _formatLocalDate(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+/**
+ * Parse the user's model-aliases GSetting ({ "alias": "mainModelId" }) into a
+ * plain object. Malformed/empty input falls back to {} so a bad value never
+ * breaks aggregation — same defensive idiom as price-overrides parsing.
+ */
+function _parseAliasMap(raw) {
+    try {
+        const parsed = JSON.parse(raw || '{}');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        return parsed;
+    } catch (_e) {
+        return {};
+    }
 }

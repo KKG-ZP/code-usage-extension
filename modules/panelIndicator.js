@@ -224,6 +224,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 case 'cny-exchange-rate':
                 case 'cost-multiplier':
                 case 'price-overrides':
+                case 'model-aliases':
                 case 'sort-order':
                 case 'model-sort-by':
                 case 'date-range-preset':

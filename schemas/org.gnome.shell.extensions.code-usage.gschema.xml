@@ -51,6 +51,11 @@
       <summary>自定义定价覆盖</summary>
       <description>用户自定义的模型定价，JSON 格式。优先于内置默认定价</description>
     </key>
+    <key name="model-aliases" type="s">
+      <default>'{}'</default>
+      <summary>模型别名映射</summary>
+      <description>用户自定义的模型别名→主模型映射，JSON 格式。用于将别名模型名归并到主模型统计</description>
+    </key>
     <key name="cost-currency" type="s">
       <default>'CNY'</default>
       <summary>货币显示</summary>

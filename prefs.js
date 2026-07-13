@@ -31,6 +31,13 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         window.add(page3);
         this._buildAdvancedPage(page3, settings);
+
+        const page4 = new Adw.PreferencesPage({
+            title: _('模型映射'),
+            icon_name: 'applications-engineering-symbolic',
+        });
+        window.add(page4);
+        this._buildAliasPage(page4, settings, window);
     }
 
     _buildGeneralPage(page, settings) {
@@ -567,5 +574,187 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         settings.bind('debug-mode', debugRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         debugGroup.add(debugRow);
+    }
+
+    _buildAliasPage(page, settings, window) {
+        const aliasGroup = new Adw.PreferencesGroup({
+            title: _('模型别名映射'),
+            description: _('将日志中的别名模型名映射到主模型，使其归并到主模型统计而非单独成项。映射全局生效，不区分代理源。'),
+        });
+        page.add(aliasGroup);
+
+        const aliasList = new Gtk.ListBox({
+            selection_mode: Gtk.SelectionMode.NONE,
+            css_classes: ['boxed-list'],
+        });
+        aliasGroup.add(aliasList);
+
+        const renderAliasList = () => {
+            let child;
+            while ((child = aliasList.get_first_child()) !== null) {
+                aliasList.remove(child);
+            }
+
+            let aliases = {};
+            try {
+                aliases = JSON.parse(settings.get_string('model-aliases') || '{}');
+            } catch (e) { /* ignore */ }
+
+            const keys = Object.keys(aliases).sort();
+            for (const alias of keys) {
+                const targetId = aliases[alias];
+                const targetDisplay = (DEFAULT_PRICING[targetId] && DEFAULT_PRICING[targetId].displayName) || targetId;
+                const row = new Adw.ActionRow({
+                    title: alias,
+                    subtitle: `→ ${targetDisplay}`,
+                });
+
+                const deleteBtn = new Gtk.Button({
+                    icon_name: 'edit-delete-symbolic',
+                    css_classes: ['destructive-action', 'circular'],
+                    valign: Gtk.Align.CENTER,
+                });
+                deleteBtn.connect('clicked', () => {
+                    let current = {};
+                    try {
+                        current = JSON.parse(settings.get_string('model-aliases') || '{}');
+                    } catch (e) { /* ignore */ }
+                    delete current[alias];
+                    settings.set_string('model-aliases', JSON.stringify(current));
+                    renderAliasList();
+                });
+
+                row.add_suffix(deleteBtn);
+                aliasList.append(row);
+            }
+
+            if (keys.length === 0) {
+                const emptyRow = new Adw.ActionRow({
+                    title: _('暂无模型别名映射'),
+                    subtitle: _('点击下方按钮添加别名映射'),
+                });
+                emptyRow.set_sensitive(false);
+                aliasList.append(emptyRow);
+            }
+        };
+
+        renderAliasList();
+        // settings is a schema-level singleton that outlives the prefs
+        // window — disconnect on close so handlers don't stack across cycles.
+        const modelAliasesId = settings.connect('changed::model-aliases', renderAliasList);
+        window.connect('close-request', () => {
+            try { settings.disconnect(modelAliasesId); } catch (_e) { /* ignore */ }
+        });
+
+        const addActionGroup = new Adw.PreferencesGroup({});
+        page.add(addActionGroup);
+
+        const addRow = new Adw.ActionRow({
+            title: _('添加模型映射'),
+            icon_name: 'list-add-symbolic',
+        });
+        addRow.connect('activated', () => {
+            this._openAliasDialog(window, settings, null, renderAliasList);
+        });
+        addActionGroup.add(addRow);
+
+        const defaultsGroup = new Adw.PreferencesGroup({
+            title: _('重置'),
+            description: _('清除所有别名映射，恢复按原始模型名分别统计'),
+        });
+        page.add(defaultsGroup);
+
+        const resetRow = new Adw.ActionRow({
+            title: _('重置所有模型映射'),
+            subtitle: _('删除所有别名映射'),
+            icon_name: 'edit-undo-symbolic',
+        });
+        resetRow.connect('activated', () => {
+            settings.set_string('model-aliases', '{}');
+            renderAliasList();
+        });
+        defaultsGroup.add(resetRow);
+    }
+
+    _openAliasDialog(parentWindow, settings, existingAlias, refreshCallback) {
+        const dialog = new Adw.Dialog({
+            title: existingAlias ? _('编辑模型映射') : _('添加模型映射'),
+            content_width: 400,
+            content_height: 500,
+        });
+
+        const page = new Adw.PreferencesPage({});
+        const group = new Adw.PreferencesGroup({});
+        page.add(group);
+        dialog.set_child(page);
+
+        const aliasRow = new Adw.EntryRow({
+            title: _('别名模型名'),
+            show_apply_button: true,
+        });
+        if (existingAlias) {
+            aliasRow.set_text(existingAlias);
+            aliasRow.set_sensitive(false);
+        }
+        group.add(aliasRow);
+
+        // Build the main-model dropdown from DEFAULT_PRICING keys, sorted by
+        // displayName for browsability. Adw.ComboRow is index-based, so keep a
+        // parallel modelIds array mapping selected index → canonical id.
+        const modelIds = Object.keys(DEFAULT_PRICING).sort((a, b) => {
+            const da = (DEFAULT_PRICING[a] && DEFAULT_PRICING[a].displayName) || a;
+            const db = (DEFAULT_PRICING[b] && DEFAULT_PRICING[b].displayName) || b;
+            return da.localeCompare(db);
+        });
+        const targetRow = new Adw.ComboRow({
+            title: _('映射到主模型'),
+            subtitle: _('选择别名应归并到的主模型'),
+        });
+        const targetModel = new Gtk.StringList();
+        for (const id of modelIds) {
+            targetModel.append((DEFAULT_PRICING[id] && DEFAULT_PRICING[id].displayName) || id);
+        }
+        targetRow.set_model(targetModel);
+
+        // Hydrate target selection when editing an existing alias.
+        if (existingAlias) {
+            let aliases = {};
+            try {
+                aliases = JSON.parse(settings.get_string('model-aliases') || '{}');
+            } catch (e) { /* ignore */ }
+            const existingTarget = aliases[existingAlias] || null;
+            if (existingTarget) {
+                const idx = modelIds.indexOf(existingTarget);
+                if (idx >= 0) targetRow.set_selected(idx);
+            }
+        }
+
+        group.add(targetRow);
+
+        const saveGroup = new Adw.PreferencesGroup({});
+        page.add(saveGroup);
+        const saveBtn = new Gtk.Button({
+            label: _('保存'),
+            css_classes: ['suggested-action', 'pill'],
+            halign: Gtk.Align.CENTER,
+        });
+        saveBtn.connect('clicked', () => {
+            const alias = existingAlias || aliasRow.get_text().trim();
+            const targetId = modelIds[targetRow.get_selected()];
+            // Skip empty alias, missing target, or self-mapping (no-op).
+            if (!alias || !targetId || alias === targetId) return;
+
+            let aliases = {};
+            try {
+                aliases = JSON.parse(settings.get_string('model-aliases') || '{}');
+            } catch (e) { /* ignore */ }
+            aliases[alias] = targetId;
+            settings.set_string('model-aliases', JSON.stringify(aliases));
+            if (refreshCallback) refreshCallback();
+            dialog.close();
+        });
+        saveGroup.add(saveBtn);
+
+        dialog.present(parentWindow);
     }
 }

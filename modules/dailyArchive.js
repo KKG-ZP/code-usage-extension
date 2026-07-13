@@ -155,7 +155,7 @@ export class DailyArchive {
         for (const e of day) {
             const m = this._processor.computeEntryMetrics(e);
             const agent = m.agent;
-            const model = e.model || 'unknown';
+            const model = m.model || e.model || 'unknown';
             const compositeKey = `${agent}:${model}`;        // matches dataProcessor.js:92
 
             inputTokens += m.usage.inputTokens;
