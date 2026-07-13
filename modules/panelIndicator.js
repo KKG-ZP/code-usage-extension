@@ -10,7 +10,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { DataSource } from './dataSource.js';
-import { DataProcessor, setGettext as setDataProcessorGettext } from './dataProcessor.js';
+import { DataProcessor } from './dataProcessor.js';
 import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 import { setDebugEnabled as setParsersDebugEnabled } from './parsers.js';
@@ -23,7 +23,6 @@ const MODEL_EXPANDED_PAGE_SIZE = 8;
 
 export function setGettext(fn) {
     _ = fn;
-    setDataProcessorGettext(fn);
 }
 
 /**
@@ -144,9 +143,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._modelListDirty = false;
         this._heatmapWeeksData = [];
         this._heatmapDirty = false;
-        this._activePage = 'overview';
-        this._pageButtons = {};
-        this._overviewPageItems = [];
         // Debounce source ids for settings-driven reprocessing / timer
         // restarts. SpinRow drags fire dozens of 'changed' signals per
         // second; without coalescing, each one triggers a full reprocess.
@@ -405,16 +401,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
         heroItem.add_child(heroBox);
         this.menu.addMenuItem(heroItem);
 
-        const tabsItem = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        tabsItem.add_child(this._createPageTabs());
-        this.menu.addMenuItem(tabsItem);
-
         const overviewSep1 = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(overviewSep1);
-        this._overviewPageItems.push(overviewSep1);
 
         const modelSectionBox = new St.BoxLayout({
             style_class: 'cu-model-section cu-popup-content-width',
@@ -501,11 +489,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         modelSectionItem.add_child(modelSectionBox);
         this.menu.addMenuItem(modelSectionItem);
-        this._overviewPageItems.push(modelSectionItem);
 
         const overviewSep2 = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(overviewSep2);
-        this._overviewPageItems.push(overviewSep2);
 
         const heatmapBox = new St.BoxLayout({
             style_class: 'cu-heatmap-section cu-popup-content-width',
@@ -588,11 +574,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         heatmapItem.add_child(heatmapBox);
         this.menu.addMenuItem(heatmapItem);
-        this._overviewPageItems.push(heatmapItem);
 
         const overviewSep3 = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(overviewSep3);
-        this._overviewPageItems.push(overviewSep3);
 
         const dateBox = new St.BoxLayout({
             style_class: 'cu-date-section cu-popup-content-width',
@@ -650,168 +634,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         dateItem.add_child(dateBox);
         this.menu.addMenuItem(dateItem);
-        this._overviewPageItems.push(dateItem);
-
-        this._weeklyPageItem = this._createWeeklyPage();
-        this.menu.addMenuItem(this._weeklyPageItem);
-
-        this._achievementsPageItem = this._createAchievementsPage();
-        this.menu.addMenuItem(this._achievementsPageItem);
 
         this._updateDateButtonStyles();
-        this._setActivePage('overview');
-    }
-
-    _createPageTabs() {
-        const tabs = new St.BoxLayout({
-            style_class: 'cu-page-tabs cu-popup-content-width',
-            vertical: false,
-            x_expand: true,
-        });
-        for (const tab of [
-            { id: 'overview', label: _('概览') },
-            { id: 'weekly', label: _('周报') },
-            { id: 'achievements', label: _('成就') },
-        ]) {
-            const btn = new St.Button({
-                style_class: 'cu-page-tab',
-                reactive: true,
-                can_focus: true,
-                label: tab.label,
-                x_expand: true,
-            });
-            btn.connect('clicked', () => this._setActivePage(tab.id));
-            this._pageButtons[tab.id] = btn;
-            tabs.add_child(btn);
-        }
-        return tabs;
-    }
-
-    _setActivePage(pageId) {
-        this._activePage = pageId;
-        for (const [id, btn] of Object.entries(this._pageButtons)) {
-            if (id === pageId) {
-                btn.add_style_class_name('active');
-            } else {
-                btn.remove_style_class_name('active');
-            }
-        }
-        for (const item of this._overviewPageItems) {
-            if (pageId === 'overview') item.show();
-            else item.hide();
-        }
-        if (this._weeklyPageItem) {
-            if (pageId === 'weekly') this._weeklyPageItem.show();
-            else this._weeklyPageItem.hide();
-        }
-        if (this._achievementsPageItem) {
-            if (pageId === 'achievements') this._achievementsPageItem.show();
-            else this._achievementsPageItem.hide();
-        }
-    }
-
-    _createWeeklyPage() {
-        const pageBox = new St.BoxLayout({
-            style_class: 'cu-weekly-page cu-popup-content-width',
-            vertical: true,
-            x_expand: true,
-        });
-
-        this._weeklyTitleLabel = new St.Label({
-            text: _('本周还没开张'),
-            style_class: 'cu-weekly-title',
-        });
-        pageBox.add_child(this._weeklyTitleLabel);
-
-        this._weeklySubtitleLabel = _makeEllipsizedLabel({
-            text: _('有新记录后，这里会生成本周小结。'),
-            style_class: 'cu-weekly-subtitle',
-            x_expand: true,
-        });
-        pageBox.add_child(this._weeklySubtitleLabel);
-
-        const statsRow = new St.BoxLayout({
-            style_class: 'cu-weekly-stats-row',
-            vertical: false,
-            x_expand: true,
-        });
-        this._weeklyActiveCard = this._createStatCard(_('活跃天数'), '0', 'cu-stat-requests cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
-        this._weeklyTokenCard = this._createStatCard(_('Token'), '0', 'cu-stat-tokens cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
-        this._weeklyCostCard = this._createStatCard(_('费用'), '¥0.00', 'cu-stat-cost cu-weekly-stat-card', Clutter.ActorAlign.CENTER, false);
-        for (const card of [this._weeklyActiveCard, this._weeklyTokenCard, this._weeklyCostCard]) {
-            card.set_width(88);
-            card._valueLabel.add_style_class_name('cu-weekly-stat-value');
-            card._valueLabel.set_height(22);
-            card._label.add_style_class_name('cu-weekly-stat-label');
-            card._label.set_height(15);
-        }
-        statsRow.add_child(this._weeklyActiveCard);
-        statsRow.add_child(this._weeklyTokenCard);
-        statsRow.add_child(this._weeklyCostCard);
-        pageBox.add_child(statsRow);
-
-        this._weeklyDailyBars = new St.BoxLayout({
-            style_class: 'cu-weekly-daily-bars',
-            vertical: false,
-            x_expand: true,
-        });
-        pageBox.add_child(this._weeklyDailyBars);
-
-        this._weeklyHighlightList = new St.BoxLayout({
-            style_class: 'cu-weekly-highlight-list',
-            vertical: true,
-            x_expand: true,
-        });
-        pageBox.add_child(this._weeklyHighlightList);
-
-        this._weeklyBadgeList = new St.BoxLayout({
-            style_class: 'cu-weekly-badge-list',
-            vertical: true,
-            x_expand: true,
-        });
-        pageBox.add_child(this._weeklyBadgeList);
-
-        const item = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        item.add_child(pageBox);
-        return item;
-    }
-
-    _createAchievementsPage() {
-        const pageBox = new St.BoxLayout({
-            style_class: 'cu-achievements-page cu-popup-content-width',
-            vertical: true,
-            x_expand: true,
-        });
-
-        const title = new St.Label({
-            text: _('成就徽章'),
-            style_class: 'cu-section-title',
-        });
-        pageBox.add_child(title);
-
-        this._achievementSummaryLabel = _makeEllipsizedLabel({
-            text: _('还没有解锁成就'),
-            style_class: 'cu-achievement-summary',
-            x_expand: true,
-        });
-        pageBox.add_child(this._achievementSummaryLabel);
-
-        this._achievementList = new St.BoxLayout({
-            style_class: 'cu-achievement-list',
-            vertical: true,
-            x_expand: true,
-        });
-        pageBox.add_child(this._achievementList);
-
-        const item = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        item.add_child(pageBox);
-        return item;
     }
 
     _createStatCard(labelText, valueText, extraClass, labelAlign = Clutter.ActorAlign.START, xExpand = true) {
@@ -833,7 +657,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         card.add_child(value);
         card.add_child(label);
         card._valueLabel = value;
-        card._label = label;
         return card;
     }
 
@@ -1022,7 +845,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         }
         this._lastData = this._processor.processEntries(entries);
         this._updateDisplay(this._lastData);
-        this._persistAchievementUnlocks(this._lastData);
     }
 
     _updatePanelLabel(data) {
@@ -1042,181 +864,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         this._updateModelList(data);
         this._updateTokenHeatmap(data);
-        this._updateWeeklyReport(data);
-        this._updateAchievementsPage(data);
-    }
-
-    _persistAchievementUnlocks(data) {
-        const achievements = data.achievements;
-        if (!achievements || !achievements.hasAchievementStateChanges) return;
-        try {
-            this._settings.set_string('achievement-state', JSON.stringify(achievements.updatedState || {}));
-        } catch (e) {
-            console.error(`Code Usage: Failed to persist achievement state: ${e.message}`);
-        }
-    }
-
-    _updateWeeklyReport(data) {
-        const report = data.weeklyReport;
-        if (!report) return;
-
-        this._weeklyTitleLabel.set_text(report.title || _('本周小结'));
-        this._weeklySubtitleLabel.set_text(report.subtitle || '');
-        this._weeklyTokenCard._valueLabel.set_text(report.totalTokensFormatted || '0');
-        this._weeklyCostCard._valueLabel.set_text(report.totalCostFormatted || '¥0.00');
-        this._weeklyActiveCard._valueLabel.set_text(`${report.activeDays || 0}`);
-
-        this._weeklyDailyBars.destroy_all_children();
-        for (const day of report.daily || []) {
-            const dayBox = new St.BoxLayout({
-                style_class: 'cu-weekly-day',
-                vertical: true,
-                x_expand: true,
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-            dayBox.add_child(new St.Label({
-                text: day.weekday,
-                style_class: 'cu-weekly-day-label',
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
-            const cell = new St.Widget({
-                style_class: `cu-weekly-day-cell cu-heatmap-level-${day.level || 0}`,
-            });
-            dayBox.add_child(cell);
-            dayBox.add_child(new St.Label({
-                text: day.totalTokens > 0 ? day.totalTokensFormatted : '0',
-                style_class: 'cu-weekly-day-value',
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
-            this._weeklyDailyBars.add_child(dayBox);
-        }
-
-        this._weeklyHighlightList.destroy_all_children();
-        for (const row of [
-            [_('主力模型'), report.topModel || _('暂无')],
-            [_('主力 Agent'), report.topAgent || _('暂无')],
-            [_('缓存命中'), report.cacheHitRateFormatted || '0.0%'],
-            [_('百万成本'), report.costPerMillionFormatted || '¥0.00'],
-        ]) {
-            this._weeklyHighlightList.add_child(this._createWeeklyInfoRow(row[0], row[1]));
-        }
-
-        this._weeklyBadgeList.destroy_all_children();
-        const liveBadges = data.achievements?.items?.filter(item => item.isLive || item.newlyUnlocked) || [];
-        const visibleBadges = liveBadges.length > 0 ? liveBadges : (data.achievements?.items || []).slice(0, 2);
-        for (const item of visibleBadges.slice(0, 3)) {
-            this._weeklyBadgeList.add_child(this._createBadgeRow(item, true));
-        }
-        if (visibleBadges.length === 0) {
-            this._weeklyBadgeList.add_child(new St.Label({
-                text: _('本周徽章还在路上'),
-                style_class: 'cu-empty-label',
-            }));
-        }
-    }
-
-    _createWeeklyInfoRow(label, value) {
-        const row = new St.BoxLayout({
-            style_class: 'cu-weekly-info-row',
-            vertical: false,
-            x_expand: true,
-        });
-        row.add_child(new St.Label({
-            text: label,
-            style_class: 'cu-weekly-info-label',
-            x_align: Clutter.ActorAlign.START,
-        }));
-        row.add_child(_makeEllipsizedLabel({
-            text: value,
-            style_class: 'cu-weekly-info-value',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.END,
-        }));
-        return row;
-    }
-
-    _updateAchievementsPage(data) {
-        const achievements = data.achievements;
-        const items = achievements?.items || [];
-        const unlockedCount = items.filter(item => item.unlocked).length;
-        this._achievementSummaryLabel.set_text(
-            unlockedCount > 0
-                ? `${_('已解锁')} ${unlockedCount}/${items.length}`
-                : _('还没有解锁成就')
-        );
-
-        this._achievementList.destroy_all_children();
-        for (const item of items) {
-            this._achievementList.add_child(this._createBadgeRow(item, false));
-        }
-        if (items.length === 0) {
-            this._achievementList.add_child(new St.Label({
-                text: _('暂无成就数据'),
-                style_class: 'cu-empty-label',
-            }));
-        }
-    }
-
-    _createBadgeRow(item, compact) {
-        const card = new St.BoxLayout({
-            style_class: item.unlocked || item.isLive
-                ? 'cu-achievement-card cu-achievement-card-active'
-                : 'cu-achievement-card',
-            vertical: true,
-            x_expand: true,
-        });
-
-        const header = new St.BoxLayout({
-            style_class: 'cu-achievement-header',
-            vertical: false,
-            x_expand: true,
-        });
-        header.add_child(new St.Label({
-            text: item.title,
-            style_class: 'cu-achievement-title',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.START,
-        }));
-        const statusText = item.newlyUnlocked
-            ? _('新解锁')
-            : item.unlocked
-                ? _('已解锁')
-                : item.isLive
-                    ? _('本周在线')
-                    : `${item.valueLabel}/${item.thresholdLabel}`;
-        header.add_child(new St.Label({
-            text: statusText,
-            style_class: item.unlocked || item.newlyUnlocked
-                ? 'cu-achievement-status cu-achievement-status-unlocked'
-                : 'cu-achievement-status',
-            x_align: Clutter.ActorAlign.END,
-        }));
-        card.add_child(header);
-
-        if (!compact) {
-            card.add_child(new St.Label({
-                text: item.description,
-                style_class: 'cu-achievement-description',
-            }));
-
-            const progressBg = new St.Widget({
-                style_class: 'cu-achievement-progress-bg',
-                x_expand: true,
-            });
-            const progressBar = new St.Widget({
-                style_class: 'cu-achievement-progress-bar',
-            });
-            progressBg.add_child(progressBar);
-            progressBg.connect('notify::width', () => {
-                const w = progressBg.get_width();
-                if (w > 0) {
-                    progressBar.set_width(Math.round(Math.max(0, Math.min(1, item.progress || 0)) * w));
-                }
-            });
-            card.add_child(progressBg);
-        }
-
-        return card;
     }
 
     _updateTokenHeatmap(data) {

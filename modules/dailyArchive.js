@@ -8,7 +8,7 @@
 // a MONOTONIC max-merge (a day's record only ever grows, never shrinks: days
 // whose logs got deleted are simply left untouched), plus a merge of archived
 // days back into the live entries so deleted days reappear in every view
-// (daily list / heatmap / weekly report / per-model cards / totals).
+// (daily list / heatmap / per-model cards / totals).
 //
 // Storage lives OUTSIDE the extension install dir
 // (~/.local/share/code-usage-extension/daily-usage.json) so it survives
@@ -197,8 +197,8 @@ export class DailyArchive {
 
     /**
      * Inject archived days into the live entries so processEntries aggregates
-     * them uniformly into daily / totals / heatmap / weekly / per-model /
-     * achievements. Only days with ZERO live entries are injected whole (live
+     * them uniformly into daily / totals / heatmap / per-model cards.
+     * Only days with ZERO live entries are injected whole (live
      * data fully deleted). Days that still have live entries delegate to
      * _mergeRuleForDay (partial-deletion recovery).
      *

@@ -2,14 +2,7 @@ import { CostCalculator, formatCost, formatTokens, calculateTokenAccountingForAp
 import { getPricingForModel } from './pricingResolver.js';
 import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
 
-let _ = (s) => s;
-
-export function setGettext(fn) {
-    _ = fn;
-}
-
 const HEATMAP_WEEK_COUNT = 16;
-const ACHIEVEMENT_HISTORY_WEEKS = 8;
 
 export class DataProcessor {
     constructor(settings) {
@@ -30,18 +23,9 @@ export class DataProcessor {
         const overridesJson = this._settings.get_string('price-overrides');
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
-        const weeklyReport = this._getWeeklyReport(entries || [], {
-            tokenFormat,
-            costMultiplier,
-            overridesJson,
-            currency,
-            exchangeRate,
-            today,
-        });
-        const achievements = this._getAchievements(weeklyReport);
 
         if (!entries || entries.length === 0) {
-            return this._emptyResult(heatmapWeeks, weeklyReport, achievements);
+            return this._emptyResult(heatmapWeeks);
         }
 
         const sortOrder = this._settings.get_string('sort-order');
@@ -186,8 +170,6 @@ export class DataProcessor {
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
             exchangeRate,
-            weeklyReport,
-            achievements,
         };
     }
 
@@ -251,213 +233,6 @@ export class DataProcessor {
         const overridesJson = this._settings.get_string('price-overrides');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
         return this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate });
-    }
-
-    _getWeeklyReport(entries, options) {
-        const todayDate = _parseLocalDate(options.today);
-        const currentStartDate = _startOfLocalWeek(todayDate);
-        const currentStart = _formatLocalDate(currentStartDate);
-        const currentEndDate = new Date(currentStartDate);
-        currentEndDate.setDate(currentEndDate.getDate() + 6);
-        const currentEnd = _formatLocalDate(currentEndDate);
-
-        const historyStartDate = new Date(currentStartDate);
-        historyStartDate.setDate(historyStartDate.getDate() - ACHIEVEMENT_HISTORY_WEEKS * 7);
-        const historyStart = _formatLocalDate(historyStartDate);
-
-        const current = _emptyWeekStats(currentStart);
-        const historyMap = {};
-
-        for (let i = ACHIEVEMENT_HISTORY_WEEKS; i >= 1; i--) {
-            const start = new Date(currentStartDate);
-            start.setDate(start.getDate() - i * 7);
-            historyMap[_formatLocalDate(start)] = _emptyWeekStats(_formatLocalDate(start));
-        }
-
-        for (const entry of entries) {
-            if (!entry.date || entry.date < historyStart || entry.date > currentEnd) continue;
-
-            const date = _parseLocalDate(entry.date);
-            const weekStart = _formatLocalDate(_startOfLocalWeek(date));
-            const stats = weekStart === currentStart ? current : historyMap[weekStart];
-            if (!stats) continue;
-
-            const metrics = this._entryMetrics(entry, options);
-            _addEntryToWeekStats(stats, entry, metrics);
-        }
-
-        const historyWeeks = Object.values(historyMap);
-        const nonEmptyHistory = historyWeeks.filter(w => w.totalTokens > 0 || w.requestCount > 0);
-        const baseline = _buildWeeklyBaseline(nonEmptyHistory);
-        const daily = _buildCurrentWeekDaily(current, currentStartDate, options.tokenFormat);
-        const topModel = _topMapEntry(current.modelMap);
-        const topAgent = _topMapEntry(current.agentMap);
-
-        const title = _weeklyTitle(current, baseline);
-        const subtitle = _weeklySubtitle(current, baseline);
-        const costPerMillion = current.totalTokens > 0
-            ? current.totalCost / current.totalTokens * 1_000_000
-            : 0;
-
-        return {
-            weekStart: currentStart,
-            weekEnd: currentEnd,
-            title,
-            subtitle,
-            totalTokens: current.totalTokens,
-            totalTokensFormatted: formatTokens(current.totalTokens, options.tokenFormat),
-            totalCost: current.totalCost,
-            totalCostFormatted: formatCost(current.totalCost, options.currency, options.exchangeRate),
-            requestCount: current.requestCount,
-            activeDays: current.activeDates.size,
-            modelCount: current.modelMap.size,
-            agentCount: current.agentMap.size,
-            cacheHitRate: current.cacheHitDenominator > 0
-                ? current.cacheReadTokens / current.cacheHitDenominator
-                : 0,
-            cacheHitRateFormatted: `${(current.cacheHitDenominator > 0 ? current.cacheReadTokens / current.cacheHitDenominator * 100 : 0).toFixed(1)}%`,
-            cacheReadTokens: current.cacheReadTokens,
-            costPerMillion,
-            costPerMillionFormatted: formatCost(costPerMillion, options.currency, options.exchangeRate),
-            topModel: topModel ? topModel.label : _('暂无'),
-            topAgent: topAgent ? topAgent.label : _('暂无'),
-            daily,
-            baseline,
-            historyWeeks: historyWeeks.map(w => ({
-                weekStart: w.weekStart,
-                totalTokens: w.totalTokens,
-                activeDays: w.activeDates.size,
-                modelCount: w.modelMap.size,
-                cacheHitRate: w.cacheHitDenominator > 0 ? w.cacheReadTokens / w.cacheHitDenominator : 0,
-                costPerMillion: w.totalTokens > 0 ? w.totalCost / w.totalTokens * 1_000_000 : 0,
-            })),
-        };
-    }
-
-    _getAchievements(weeklyReport) {
-        const state = _parseAchievementState(this._settings.get_string('achievement-state'));
-        const updatedState = { ...state };
-        let hasAchievementStateChanges = false;
-        const now = new Date().toISOString();
-        const baseline = weeklyReport.baseline || {};
-        const enoughHistory = (baseline.nonEmptyWeeks || 0) >= 2;
-
-        const highWeekThreshold = enoughHistory
-            ? Math.max(1, baseline.avgTokens * 1.2)
-            : 100_000;
-        const activeHardThreshold = 5;
-        const activeLiveThreshold = enoughHistory ? 5 : 3;
-        const modelThreshold = enoughHistory
-            ? Math.max(3, Math.ceil((baseline.avgModelCount || 0) + 1))
-            : 3;
-        const cacheThreshold = enoughHistory
-            ? Math.max(0.3, (baseline.avgCacheHitRate || 0) + 0.1)
-            : 0.3;
-        const saverThreshold = baseline.avgCostPerMillion > 0
-            ? baseline.avgCostPerMillion * 0.85
-            : 0;
-
-        const specs = [
-            {
-                id: 'high-week',
-                title: _('高能周'),
-                description: _('本周 Token 明显高于平常'),
-                value: weeklyReport.totalTokens,
-                threshold: highWeekThreshold,
-                valueLabel: weeklyReport.totalTokensFormatted,
-                thresholdLabel: formatTokens(highWeekThreshold, this._settings.get_string('token-display-format')),
-                liveMet: weeklyReport.totalTokens >= highWeekThreshold && weeklyReport.totalTokens > 0,
-                hardMet: weeklyReport.totalTokens >= highWeekThreshold && weeklyReport.totalTokens > 0,
-            },
-            {
-                id: 'active-week',
-                title: _('连勤周'),
-                description: _('本周多天都有 AI 编程记录'),
-                value: weeklyReport.activeDays,
-                threshold: activeLiveThreshold,
-                valueLabel: `${weeklyReport.activeDays}${_('天')}`,
-                thresholdLabel: `${activeLiveThreshold}${_('天')}`,
-                liveMet: weeklyReport.activeDays >= activeLiveThreshold,
-                hardMet: weeklyReport.activeDays >= activeHardThreshold,
-            },
-            {
-                id: 'model-explorer',
-                title: _('模型探索'),
-                description: _('本周尝试了更多不同模型'),
-                value: weeklyReport.modelCount,
-                threshold: modelThreshold,
-                valueLabel: `${weeklyReport.modelCount}${_('个')}`,
-                thresholdLabel: `${modelThreshold}${_('个')}`,
-                liveMet: weeklyReport.modelCount >= modelThreshold,
-                hardMet: weeklyReport.modelCount >= modelThreshold,
-            },
-            {
-                id: 'cache-comeback',
-                title: _('缓存回血'),
-                description: _('缓存命中率表现不错'),
-                value: weeklyReport.cacheHitRate,
-                threshold: cacheThreshold,
-                valueLabel: weeklyReport.cacheHitRateFormatted,
-                thresholdLabel: `${(cacheThreshold * 100).toFixed(0)}%`,
-                liveMet: weeklyReport.cacheReadTokens > 0 && weeklyReport.cacheHitRate >= cacheThreshold,
-                hardMet: weeklyReport.cacheReadTokens > 0 && weeklyReport.cacheHitRate >= cacheThreshold,
-            },
-            {
-                id: 'cost-saver',
-                title: _('省钱打法'),
-                description: _('本周每百万 Token 成本低于平常'),
-                value: saverThreshold > 0 ? baseline.avgCostPerMillion - weeklyReport.costPerMillion : 0,
-                threshold: saverThreshold > 0 ? baseline.avgCostPerMillion - saverThreshold : 0,
-                valueLabel: weeklyReport.costPerMillionFormatted,
-                thresholdLabel: saverThreshold > 0
-                    ? formatCost(saverThreshold, this._settings.get_string('cost-currency'), this._settings.get_double('cny-exchange-rate'))
-                    : _('需要历史数据'),
-                liveMet: saverThreshold > 0 && weeklyReport.totalTokens >= 10_000 && weeklyReport.costPerMillion <= saverThreshold,
-                hardMet: saverThreshold > 0 && weeklyReport.totalTokens >= 10_000 && weeklyReport.costPerMillion <= saverThreshold,
-            },
-        ];
-
-        const items = specs.map(spec => {
-            const saved = state[spec.id] || null;
-            let newlyUnlocked = false;
-            if (spec.hardMet && !saved) {
-                newlyUnlocked = true;
-                hasAchievementStateChanges = true;
-                updatedState[spec.id] = {
-                    unlockedAt: now,
-                    bestValue: spec.value,
-                };
-            } else if (spec.hardMet && saved && spec.value > (saved.bestValue || 0)) {
-                hasAchievementStateChanges = true;
-                updatedState[spec.id] = {
-                    ...saved,
-                    bestValue: spec.value,
-                };
-            }
-
-            const persisted = updatedState[spec.id] || saved;
-            return {
-                id: spec.id,
-                title: spec.title,
-                description: spec.description,
-                valueLabel: spec.valueLabel,
-                thresholdLabel: spec.thresholdLabel,
-                progress: spec.threshold > 0 ? Math.min(1, Math.max(0, spec.value / spec.threshold)) : 0,
-                isLive: spec.liveMet,
-                unlocked: Boolean(persisted),
-                newlyUnlocked,
-                unlockedAt: persisted ? persisted.unlockedAt : '',
-                bestValue: persisted ? persisted.bestValue : 0,
-            };
-        });
-
-        return {
-            items,
-            live: items.filter(item => item.isLive),
-            unlocked: items.filter(item => item.unlocked),
-            updatedState,
-            hasAchievementStateChanges,
-        };
     }
 
     _buildDateFilter(preset, customSince, customUntil) {
@@ -571,19 +346,11 @@ export class DataProcessor {
         return heatmapWeeks;
     }
 
-    _emptyResult(heatmapWeeks = null, weeklyReport = null, achievements = null) {
+    _emptyResult(heatmapWeeks = null) {
         const currency = this._settings ? this._settings.get_string('cost-currency') : 'CNY';
         const exchangeRate = this._settings ? this._settings.get_double('cny-exchange-rate') : 7.25;
         const tokenFormat = this._settings ? this._settings.get_string('token-display-format') : 'auto';
         const weeks = heatmapWeeks || this._getTokenHeatmapWeeks([], tokenFormat, _formatLocalDate(new Date()));
-        const emptyWeeklyReport = weeklyReport || this._getWeeklyReport([], {
-            tokenFormat,
-            costMultiplier: this._settings ? this._settings.get_double('cost-multiplier') : 1,
-            overridesJson: this._settings ? this._settings.get_string('price-overrides') : '{}',
-            currency,
-            exchangeRate,
-            today: _formatLocalDate(new Date()),
-        });
 
         return {
             totalRequests: 0,
@@ -606,147 +373,13 @@ export class DataProcessor {
             daysWithUsage: 0,
             currency,
             exchangeRate,
-            weeklyReport: emptyWeeklyReport,
-            achievements: achievements || this._getAchievements(emptyWeeklyReport),
         };
     }
-}
-
-function _parseAchievementState(raw) {
-    try {
-        const parsed = JSON.parse(raw || '{}');
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-        return parsed;
-    } catch (_e) {
-        return {};
-    }
-}
-
-function _emptyWeekStats(weekStart) {
-    return {
-        weekStart,
-        totalTokens: 0,
-        totalCost: 0,
-        requestCount: 0,
-        cacheReadTokens: 0,
-        cacheHitDenominator: 0,
-        activeDates: new Set(),
-        modelMap: new Map(),
-        agentMap: new Map(),
-        dailyMap: new Map(),
-    };
-}
-
-function _addEntryToWeekStats(stats, entry, metrics) {
-    const modelKey = `${metrics.agent}:${entry.model || 'unknown'}`;
-    const displayName = metrics.pricing ? (metrics.pricing.displayName || entry.model || 'unknown') : (entry.model || 'unknown');
-    const agentName = AGENT_DISPLAY_NAMES[metrics.agent] || metrics.agent;
-
-    stats.totalTokens += metrics.tokenAccounting.totalTokens;
-    stats.totalCost += metrics.entryCost;
-    stats.requestCount += 1;
-    stats.cacheReadTokens += metrics.usage.cacheReadTokens;
-    stats.cacheHitDenominator += metrics.tokenAccounting.cacheHitDenominator;
-    stats.activeDates.add(entry.date);
-
-    _addToAggregateMap(stats.modelMap, modelKey, displayName, metrics.tokenAccounting.totalTokens, metrics.entryCost);
-    _addToAggregateMap(stats.agentMap, metrics.agent, agentName, metrics.tokenAccounting.totalTokens, metrics.entryCost);
-
-    const daily = stats.dailyMap.get(entry.date) || { date: entry.date, totalTokens: 0, requestCount: 0, cost: 0 };
-    daily.totalTokens += metrics.tokenAccounting.totalTokens;
-    daily.requestCount += 1;
-    daily.cost += metrics.entryCost;
-    stats.dailyMap.set(entry.date, daily);
-}
-
-function _addToAggregateMap(map, key, label, tokens, cost) {
-    const current = map.get(key) || { key, label, tokens: 0, cost: 0, requestCount: 0 };
-    current.tokens += tokens;
-    current.cost += cost;
-    current.requestCount += 1;
-    map.set(key, current);
-}
-
-function _topMapEntry(map) {
-    let best = null;
-    for (const entry of map.values()) {
-        if (!best || entry.tokens > best.tokens) best = entry;
-    }
-    return best;
-}
-
-function _buildCurrentWeekDaily(stats, weekStartDate, tokenFormat) {
-    const days = [];
-    let maxTokens = 0;
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(weekStartDate);
-        d.setDate(d.getDate() + i);
-        const key = _formatLocalDate(d);
-        const dayStats = stats.dailyMap.get(key) || { date: key, totalTokens: 0, requestCount: 0, cost: 0 };
-        if (dayStats.totalTokens > maxTokens) maxTokens = dayStats.totalTokens;
-        days.push(dayStats);
-    }
-    return days.map((day, index) => ({
-        ...day,
-        weekday: [_('一'), _('二'), _('三'), _('四'), _('五'), _('六'), _('日')][index],
-        totalTokensFormatted: formatTokens(day.totalTokens, tokenFormat),
-        level: _tokenHeatLevel(day.totalTokens, maxTokens),
-    }));
-}
-
-function _buildWeeklyBaseline(weeks) {
-    const nonEmptyWeeks = weeks.length;
-    const sumTokens = weeks.reduce((sum, w) => sum + w.totalTokens, 0);
-    const sumActiveDays = weeks.reduce((sum, w) => sum + w.activeDates.size, 0);
-    const sumModelCount = weeks.reduce((sum, w) => sum + w.modelMap.size, 0);
-    const cacheWeeks = weeks.filter(w => w.cacheHitDenominator > 0);
-    const costWeeks = weeks.filter(w => w.totalTokens > 0);
-
-    return {
-        nonEmptyWeeks,
-        avgTokens: nonEmptyWeeks > 0 ? sumTokens / nonEmptyWeeks : 0,
-        avgActiveDays: nonEmptyWeeks > 0 ? sumActiveDays / nonEmptyWeeks : 0,
-        avgModelCount: nonEmptyWeeks > 0 ? sumModelCount / nonEmptyWeeks : 0,
-        avgCacheHitRate: cacheWeeks.length > 0
-            ? cacheWeeks.reduce((sum, w) => sum + w.cacheReadTokens / w.cacheHitDenominator, 0) / cacheWeeks.length
-            : 0,
-        avgCostPerMillion: costWeeks.length > 0
-            ? costWeeks.reduce((sum, w) => sum + w.totalCost / w.totalTokens * 1_000_000, 0) / costWeeks.length
-            : 0,
-    };
-}
-
-function _weeklyTitle(current, baseline) {
-    if (current.totalTokens <= 0) return _('本周还没开张');
-    if (baseline.nonEmptyWeeks >= 2 && current.totalTokens >= baseline.avgTokens * 1.2) return _('高能输出周');
-    if (current.activeDates.size >= 5) return _('连勤手感在线');
-    if (current.modelMap.size >= 3) return _('模型探索周');
-    return _('本周稳步推进');
-}
-
-function _weeklySubtitle(current, baseline) {
-    if (current.totalTokens <= 0) return _('有新记录后，这里会生成本周小结。');
-    if (baseline.nonEmptyWeeks < 2) {
-        return _('历史样本还少，先记录本周节奏。');
-    }
-    if (baseline.avgTokens <= 0) return _('本周已经留下 AI 编程记录。');
-    const ratio = current.totalTokens / baseline.avgTokens;
-    if (ratio >= 1.05) return _('Token 比平常更活跃。');
-    if (ratio <= 0.75) return _('这一周相对轻量。');
-    return _('节奏接近平常水平。');
 }
 
 export function _parseLocalDate(dateStr) {
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
-}
-
-function _startOfLocalWeek(date) {
-    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const day = start.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    start.setDate(start.getDate() + diff);
-    return start;
 }
 
 function _tokenHeatLevel(tokens, maxTokens) {

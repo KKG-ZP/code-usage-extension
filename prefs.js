@@ -567,21 +567,5 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         settings.bind('debug-mode', debugRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         debugGroup.add(debugRow);
-
-        const achievementGroup = new Adw.PreferencesGroup({
-            title: _('成就'),
-            description: _('管理周报徽章的本地解锁记录'),
-        });
-        page.add(achievementGroup);
-
-        const clearAchievementsRow = new Adw.ActionRow({
-            title: _('清除已解锁成就'),
-            subtitle: _('重置本地成就记录，不会删除任何用量日志'),
-            icon_name: 'edit-clear-symbolic',
-        });
-        clearAchievementsRow.connect('activated', () => {
-            settings.set_string('achievement-state', '{}');
-        });
-        achievementGroup.add(clearAchievementsRow);
     }
 }
