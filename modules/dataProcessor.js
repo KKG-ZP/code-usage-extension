@@ -68,7 +68,7 @@ export class DataProcessor {
             // Entries without a parseable date (e.g. Kiro turns missing
             // timestamp fields) are dropped rather than mis-attributed.
             if (!entry.date) continue;
-            if (!dateFilter(entry.date)) continue;
+            if (!entry._fromArchive && !dateFilter(entry.date)) continue;
 
             const {
                 agent,
@@ -208,7 +208,17 @@ export class DataProcessor {
             || usage.cacheCreationTokens > 0;
 
         let entryCost = 0;
-        if (entry.costUSD != null) {
+        if (entry._finalCostCNY != null) {
+            // Re-injected from the daily archive: a precomputed final CNY
+            // cost captured at snapshot time. Bypass the USD→CNY conversion
+            // AND the cost multiplier so archived costs don't silently
+            // re-value when the user later tweaks cny-exchange-rate /
+            // cost-multiplier. Archived cost is shown as-recorded.
+            const rawCost = Number(entry._finalCostCNY);
+            if (Number.isFinite(rawCost) && rawCost > 0) {
+                entryCost = rawCost;
+            }
+        } else if (entry.costUSD != null) {
             // Guard against string/NaN costUSD from parsers: a single
             // non-numeric value would poison every running total via
             // NaN propagation. Coerce and validate before accumulating.
@@ -229,6 +239,18 @@ export class DataProcessor {
             tokenAccounting,
             entryCost,
         };
+    }
+
+    /**
+     * Compute a single entry's metrics using current settings, WITHOUT the
+     * date-range filter that processEntries applies. Used by DailyArchive to
+     * snapshot a past day's cost identically to how the panel computes it.
+     */
+    computeEntryMetrics(entry) {
+        const costMultiplier = this._settings.get_double('cost-multiplier');
+        const overridesJson = this._settings.get_string('price-overrides');
+        const exchangeRate = this._settings.get_double('cny-exchange-rate');
+        return this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate });
     }
 
     _getWeeklyReport(entries, options) {
@@ -714,7 +736,7 @@ function _weeklySubtitle(current, baseline) {
     return _('节奏接近平常水平。');
 }
 
-function _parseLocalDate(dateStr) {
+export function _parseLocalDate(dateStr) {
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
 }
@@ -736,7 +758,7 @@ function _tokenHeatLevel(tokens, maxTokens) {
     return 4;
 }
 
-function _formatLocalDate(date) {
+export function _formatLocalDate(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');

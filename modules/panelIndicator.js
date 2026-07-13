@@ -14,6 +14,7 @@ import { DataProcessor, setGettext as setDataProcessorGettext } from './dataProc
 import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 import { setDebugEnabled as setParsersDebugEnabled } from './parsers.js';
+import { DailyArchive } from './dailyArchive.js';
 
 let _ = (s) => s;
 
@@ -130,6 +131,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._openPreferences = openPreferences;
         this._dataSource = new DataSource(settings);
         this._processor = new DataProcessor(settings);
+        this._archive = new DailyArchive(settings, this._processor);
         this._lastData = null;
         this._refreshing = false;
         this._refreshQueued = false;
@@ -1009,7 +1011,15 @@ class CodeUsageIndicator extends PanelMenu.Button {
      */
     _renderFromCache() {
         const agents = this._settings.get_strv('selected-agents');
-        const entries = agents.length === 0 ? [] : this._dataSource.getEntries();
+        const liveEntries = agents.length === 0 ? [] : this._dataSource.getEntries();
+        let entries = liveEntries;
+        if (agents.length > 0) {
+            // Daily archive: snapshot yesterday past the 1 AM gate (no-op
+            // except once per day), then inject archived days whose live logs
+            // were deleted so processEntries aggregates them into every view.
+            this._archive.maybeRunSnapshot(liveEntries, new Date());
+            entries = this._archive.mergeIntoEntries(liveEntries, agents);
+        }
         this._lastData = this._processor.processEntries(entries);
         this._updateDisplay(this._lastData);
         this._persistAchievementUnlocks(this._lastData);
