@@ -76,6 +76,11 @@
       <summary>模型排序</summary>
       <description>模型列表排序依据：cost（金额）、totalTokens（使用总量）、cacheHitRate（命中率）、requestCount（请求数）</description>
     </key>
+    <key name="stats-mode" type="s">
+      <default>'agent-model'</default>
+      <summary>模型明细分组</summary>
+      <description>模型明细的统计分组方式：agent-model（按 agent+模型）、model（按模型，跨 agent 合并）、agent（按 agent，跨模型合并）</description>
+    </key>
     <key name="token-display-format" type="s">
       <default>'auto'</default>
       <summary>Token 显示格式</summary>

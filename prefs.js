@@ -3,7 +3,7 @@ import Gtk from 'gi://Gtk';
 import Gio from 'gi://Gio';
 
 import { ExtensionPreferences, gettext as _ } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
-import { DEFAULT_PRICING, SUPPORTED_AGENTS } from './modules/defaultPricing.js';
+import { DEFAULT_PRICING, MODEL_PRICING_ALIASES, SUPPORTED_AGENTS, getProviderName } from './modules/defaultPricing.js';
 
 export default class CodeUsagePreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -26,18 +26,18 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         this._buildPricingPage(page2, settings, window);
 
         const page3 = new Adw.PreferencesPage({
-            title: _('高级'),
-            icon_name: 'preferences-other-symbolic',
-        });
-        window.add(page3);
-        this._buildAdvancedPage(page3, settings);
-
-        const page4 = new Adw.PreferencesPage({
             title: _('模型映射'),
             icon_name: 'applications-engineering-symbolic',
         });
+        window.add(page3);
+        this._buildAliasPage(page3, settings, window);
+
+        const page4 = new Adw.PreferencesPage({
+            title: _('高级'),
+            icon_name: 'preferences-other-symbolic',
+        });
         window.add(page4);
-        this._buildAliasPage(page4, settings, window);
+        this._buildAdvancedPage(page4, settings);
     }
 
     _buildGeneralPage(page, settings) {
@@ -326,6 +326,7 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         const addRow = new Adw.ActionRow({
             title: _('添加模型定价'),
             icon_name: 'list-add-symbolic',
+            activatable: true,
         });
         addRow.connect('activated', () => {
             this._openPricingDialog(window, settings, null, renderPricingList);
@@ -334,14 +335,56 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
 
         const defaultsGroup = new Adw.PreferencesGroup({
             title: _('内置默认定价'),
-            description: _('扩展内置了 90+ 个模型的默认定价，无需手动配置。仅当需要覆盖特定模型价格时才添加自定义定价。'),
+            description: _('扩展内置的模型默认定价，不可修改。仅当需要覆盖特定模型价格时才在上方添加自定义定价。'),
         });
         page.add(defaultsGroup);
+
+        const builtinList = new Gtk.ListBox({
+            selection_mode: Gtk.SelectionMode.NONE,
+            css_classes: ['boxed-list'],
+        });
+        defaultsGroup.add(builtinList);
+
+        const pricingByProvider = {};
+        for (const modelId of Object.keys(DEFAULT_PRICING)) {
+            const provider = getProviderName(modelId);
+            if (!pricingByProvider[provider])
+                pricingByProvider[provider] = [];
+            pricingByProvider[provider].push(modelId);
+        }
+
+        const providerOrder = Object.keys(pricingByProvider).sort();
+        for (const provider of providerOrder) {
+            const keys = pricingByProvider[provider].sort((a, b) => {
+                const da = DEFAULT_PRICING[a].displayName || a;
+                const db = DEFAULT_PRICING[b].displayName || b;
+                return da.localeCompare(db);
+            });
+
+            const expander = new Adw.ExpanderRow({
+                title: `${provider} (${keys.length})`,
+                subtitle: `${keys.length} 个模型`,
+            });
+
+            for (const modelId of keys) {
+                const p = DEFAULT_PRICING[modelId];
+                const sym = p.currency === 'CNY' ? '¥' : '$';
+                const row = new Adw.ActionRow({
+                    title: p.displayName || modelId,
+                    subtitle: `输入 ${sym}${p.input}/M  输出 ${sym}${p.output}/M  缓存读 ${sym}${p.cacheRead || 0}/M  缓存写 ${sym}${p.cacheWrite || 0}/M`,
+                });
+                row.set_sensitive(false);
+                expander.add_row(row);
+            }
+
+            builtinList.append(expander);
+        }
 
         const resetRow = new Adw.ActionRow({
             title: _('重置所有自定义定价'),
             subtitle: _('删除所有自定义定价覆盖，恢复使用默认定价'),
             icon_name: 'edit-undo-symbolic',
+            activatable: true,
         });
         resetRow.connect('activated', () => {
             settings.set_string('price-overrides', '{}');
@@ -562,6 +605,24 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         displayGroup.add(modelSortByRow);
 
+        const statsModeRow = new Adw.ComboRow({
+            title: _('模型明细分组'),
+            subtitle: _('模型明细的统计分组方式'),
+        });
+        const statsModeModel = new Gtk.StringList();
+        statsModeModel.append(_('按 agent + 模型'));
+        statsModeModel.append(_('按模型（跨 agent 合并）'));
+        statsModeModel.append(_('按 agent（跨模型合并）'));
+        statsModeRow.set_model(statsModeModel);
+        const statsModeOptions = ['agent-model', 'model', 'agent'];
+        const currentStatsMode = settings.get_string('stats-mode');
+        const statsModeIndex = statsModeOptions.indexOf(currentStatsMode);
+        statsModeRow.set_selected(statsModeIndex >= 0 ? statsModeIndex : 0);
+        statsModeRow.connect('notify::selected', () => {
+            settings.set_string('stats-mode', statsModeOptions[statsModeRow.get_selected()]);
+        });
+        displayGroup.add(statsModeRow);
+
         const debugGroup = new Adw.PreferencesGroup({
             title: _('调试'),
             description: _('调试选项'),
@@ -652,22 +713,66 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         const addRow = new Adw.ActionRow({
             title: _('添加模型映射'),
             icon_name: 'list-add-symbolic',
+            activatable: true,
         });
         addRow.connect('activated', () => {
             this._openAliasDialog(window, settings, null, renderAliasList);
         });
         addActionGroup.add(addRow);
 
+        const builtinAliasGroup = new Adw.PreferencesGroup({
+            title: _('内置别名映射'),
+            description: _('扩展内置的模型别名映射，不可修改。'),
+        });
+        page.add(builtinAliasGroup);
+
+        const builtinAliasList = new Gtk.ListBox({
+            selection_mode: Gtk.SelectionMode.NONE,
+            css_classes: ['boxed-list'],
+        });
+        builtinAliasGroup.add(builtinAliasList);
+
+        const aliasByProvider = {};
+        for (const alias of Object.keys(MODEL_PRICING_ALIASES)) {
+            const provider = getProviderName(alias);
+            if (!aliasByProvider[provider])
+                aliasByProvider[provider] = [];
+            aliasByProvider[provider].push(alias);
+        }
+
+        const aliasProviderOrder = Object.keys(aliasByProvider).sort();
+        for (const provider of aliasProviderOrder) {
+            const keys = aliasByProvider[provider].sort();
+            const expander = new Adw.ExpanderRow({
+                title: `${provider} (${keys.length})`,
+                subtitle: `${keys.length} 个映射`,
+            });
+
+            for (const alias of keys) {
+                const targetId = MODEL_PRICING_ALIASES[alias];
+                const targetDisplay = (DEFAULT_PRICING[targetId] && DEFAULT_PRICING[targetId].displayName) || targetId;
+                const row = new Adw.ActionRow({
+                    title: alias,
+                    subtitle: `→ ${targetDisplay}`,
+                });
+                row.set_sensitive(false);
+                expander.add_row(row);
+            }
+
+            builtinAliasList.append(expander);
+        }
+
         const defaultsGroup = new Adw.PreferencesGroup({
             title: _('重置'),
-            description: _('清除所有别名映射，恢复按原始模型名分别统计'),
+            description: _('清除所有自定义别名映射，恢复按原始模型名分别统计'),
         });
         page.add(defaultsGroup);
 
         const resetRow = new Adw.ActionRow({
             title: _('重置所有模型映射'),
-            subtitle: _('删除所有别名映射'),
+            subtitle: _('删除所有自定义别名映射'),
             icon_name: 'edit-undo-symbolic',
+            activatable: true,
         });
         resetRow.connect('activated', () => {
             settings.set_string('model-aliases', '{}');

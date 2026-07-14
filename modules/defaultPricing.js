@@ -352,6 +352,40 @@ export const MODEL_PRICING_ALIASES = {
 
 export const CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini', 'qwen']);
 
+const PROVIDER_PREFIXES = [
+    ['claude', 'Anthropic'],
+    ['gpt', 'OpenAI'],
+    ['o1', 'OpenAI'],
+    ['o3', 'OpenAI'],
+    ['o4', 'OpenAI'],
+    ['codex-mini', 'OpenAI'],
+    ['gemini', 'Google'],
+    ['doubao', 'ByteDance'],
+    ['deepseek', 'DeepSeek'],
+    ['kimi', 'Moonshot'],
+    ['minimax', 'MiniMax'],
+    ['glm', 'Zhipu'],
+    ['mimo', 'Xiaomi'],
+    ['qwen', 'Alibaba'],
+    ['qwq', 'Alibaba'],
+    ['grok', 'xAI'],
+    ['step', 'StepFun'],
+    ['codestral', 'Mistral'],
+    ['devstral', 'Mistral'],
+    ['mistral', 'Mistral'],
+    ['magistral', 'Mistral'],
+    ['command', 'Cohere'],
+];
+
+export function getProviderName(modelId) {
+    const lower = modelId.toLowerCase();
+    for (const [prefix, name] of PROVIDER_PREFIXES) {
+        if (lower.startsWith(prefix))
+            return name;
+    }
+    return '其他';
+}
+
 export const SUPPORTED_AGENTS = [
     { id: 'claude', name: 'Claude Code' },
     { id: 'codex', name: 'Codex (OpenAI)' },

@@ -227,6 +227,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 case 'model-aliases':
                 case 'sort-order':
                 case 'model-sort-by':
+                case 'stats-mode':
                 case 'date-range-preset':
                 case 'custom-date-since':
                 case 'custom-date-until':
@@ -983,6 +984,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._modelListContainer.destroy_all_children();
 
         const models = this._modelListData;
+        const statsMode = this._settings.get_string('stats-mode');
         const expanded = this._modelExpanded;
         const pageSize = expanded ? MODEL_EXPANDED_PAGE_SIZE : MODEL_COLLAPSED_PAGE_SIZE;
         // Defensive clamp: if the dataset has shrunk (e.g. agent filter or
@@ -1010,16 +1012,24 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 x_expand: true,
             });
 
-            const agentColor = AGENT_BRAND_COLORS[ms.agent] || '#3584e4';
-            const agentTextColor = AGENT_BRAND_TEXT_COLORS[ms.agent] || '#ffffff';
-            const agentTag = new St.Label({
-                text: ms.agentName,
-                style_class: 'cu-model-agent-tag',
-            });
-            agentTag.set_style(`background-color: ${agentColor}; color: ${agentTextColor};`);
-            headerRow.add_child(agentTag);
+            // 'model' mode merges across agents — the agent tag has no single
+            // value, so hide it entirely for a pure per-model view.
+            if (statsMode !== 'model') {
+                const agentColor = AGENT_BRAND_COLORS[ms.agent] || '#3584e4';
+                const agentTextColor = AGENT_BRAND_TEXT_COLORS[ms.agent] || '#ffffff';
+                const agentTag = new St.Label({
+                    text: ms.agentName,
+                    style_class: 'cu-model-agent-tag',
+                });
+                agentTag.set_style(`background-color: ${agentColor}; color: ${agentTextColor};`);
+                headerRow.add_child(agentTag);
+            }
 
-            const fullName = ms.displayName || ms.model;
+            // 'agent' mode merges across models — show the model count instead
+            // of a single model name (which has no single value here).
+            const fullName = statsMode === 'agent'
+                ? `${ms.modelCount || 0} ${_('个模型')}`
+                : (ms.displayName || ms.model);
             const name = _makeEllipsizedLabel({
                 text: fullName,
                 style_class: 'cu-model-name',

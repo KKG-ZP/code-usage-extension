@@ -31,6 +31,7 @@ export class DataProcessor {
 
         const sortOrder = this._settings.get_string('sort-order');
         const modelSortBy = this._settings.get_string('model-sort-by');
+        const statsMode = this._settings.get_string('stats-mode');
 
         let totalRequests = 0;
         let totalInputTokens = 0;
@@ -75,14 +76,15 @@ export class DataProcessor {
 
             const modelKey = canonicalModel || entry.model || 'unknown';
             const displayName = pricing ? (pricing.displayName || modelKey) : modelKey;
-            const compositeKey = `${agent}:${modelKey}`;
+            // Grouping dimension is driven by stats-mode: 'model' merges across
+            // agents (key = model), 'agent' merges across models (key = agent),
+            // 'agent-model' keeps the existing composite (key = agent:model).
+            const compositeKey = statsMode === 'model' ? modelKey
+                : statsMode === 'agent' ? agent
+                : `${agent}:${modelKey}`;
 
             if (!modelStats[compositeKey]) {
-                modelStats[compositeKey] = {
-                    model: modelKey,
-                    displayName,
-                    agent,
-                    agentName: AGENT_DISPLAY_NAMES[agent] || agent,
+                const base = {
                     inputTokens: 0,
                     outputTokens: 0,
                     cacheReadTokens: 0,
@@ -92,6 +94,20 @@ export class DataProcessor {
                     cacheHitDenominator: 0,
                     requestCount: 0,
                 };
+                if (statsMode === 'agent') {
+                    base.agent = agent;
+                    base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
+                    base.modelSet = new Set();
+                } else if (statsMode === 'model') {
+                    base.model = modelKey;
+                    base.displayName = displayName;
+                } else {
+                    base.model = modelKey;
+                    base.displayName = displayName;
+                    base.agent = agent;
+                    base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
+                }
+                modelStats[compositeKey] = base;
             }
             modelStats[compositeKey].inputTokens += usage.inputTokens;
             modelStats[compositeKey].outputTokens += usage.outputTokens;
@@ -101,6 +117,7 @@ export class DataProcessor {
             modelStats[compositeKey].totalTokens += tokenAccounting.totalTokens;
             modelStats[compositeKey].cacheHitDenominator += tokenAccounting.cacheHitDenominator;
             modelStats[compositeKey].requestCount += 1;
+            if (statsMode === 'agent') modelStats[compositeKey].modelSet.add(modelKey);
 
             if (!dailyMap[entry.date]) {
                 dailyMap[entry.date] = {
@@ -157,18 +174,25 @@ export class DataProcessor {
             cacheHitRateFormatted: `${(cacheHitRate * 100).toFixed(1)}%`,
             daily: dailyArr,
             heatmapWeeks,
-            modelStats: modelList.map(m => ({
-                ...m,
-                totalTokens: m.totalTokens,
-                percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
-                totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
-                inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
-                outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
-                cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
-                cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
-                cacheHitRateFormatted: `${(m.cacheHitRate * 100).toFixed(1)}%`,
-                totalTokensFormatted: formatTokens(m.totalTokens, tokenFormat),
-            })),
+            modelStats: modelList.map(m => {
+                const out = {
+                    ...m,
+                    totalTokens: m.totalTokens,
+                    percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
+                    totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
+                    inputTokensFormatted: formatTokens(m.inputTokens, tokenFormat),
+                    outputTokensFormatted: formatTokens(m.outputTokens, tokenFormat),
+                    cacheReadTokensFormatted: formatTokens(m.cacheReadTokens, tokenFormat),
+                    cacheCreationTokensFormatted: formatTokens(m.cacheCreationTokens, tokenFormat),
+                    cacheHitRateFormatted: `${(m.cacheHitRate * 100).toFixed(1)}%`,
+                    totalTokensFormatted: formatTokens(m.totalTokens, tokenFormat),
+                };
+                if (m.modelSet) {
+                    out.modelCount = m.modelSet.size;
+                    delete out.modelSet;
+                }
+                return out;
+            }),
             daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
             currency,
             exchangeRate,
