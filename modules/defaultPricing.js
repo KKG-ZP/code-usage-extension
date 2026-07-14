@@ -23,6 +23,9 @@ export const DEFAULT_PRICING = {
     'claude-mythos-5': { displayName: 'Claude Mythos 5', input: 10, output: 50, cacheRead: 1.00, cacheWrite: 12.50 },
 
     // === GPT-5.x Series ===
+    'gpt-5.6-sol': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 6.25 },
+    'gpt-5.6-terra': { displayName: 'GPT-5.6 Terra', input: 2.50, output: 15, cacheRead: 0.25, cacheWrite: 3.125 },
+    'gpt-5.6-luna': { displayName: 'GPT-5.6 Luna', input: 1, output: 6, cacheRead: 0.10, cacheWrite: 1.25 },
     'gpt-5.5': { displayName: 'GPT-5.5', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
     'gpt-5.5-low': { displayName: 'GPT-5.5 Low', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
     'gpt-5.5-medium': { displayName: 'GPT-5.5 Medium', input: 5, output: 30, cacheRead: 0.50, cacheWrite: 0 },
@@ -205,6 +208,11 @@ export const MODEL_PRICING_ALIASES = {
     'claude-instant': 'claude-instant-1.2',
 
     // OpenAI / Codex aliases
+    'gpt-5.6': 'gpt-5.6-sol',
+    'gpt-5.6-latest': 'gpt-5.6-sol',
+    'gpt-5.6-sol-latest': 'gpt-5.6-sol',
+    'gpt-5.6-terra-latest': 'gpt-5.6-terra',
+    'gpt-5.6-luna-latest': 'gpt-5.6-luna',
     'gpt-5.5-latest': 'gpt-5.5',
     'gpt-5.5-thinking': 'gpt-5.5',
     'gpt-5.4-latest': 'gpt-5.4',
