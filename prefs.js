@@ -151,17 +151,22 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         const datePresetModel = new Gtk.StringList();
         datePresetModel.append(_('今天'));
-        datePresetModel.append(_('最近7天'));
-        datePresetModel.append(_('最近30天'));
+        datePresetModel.append(_('最近7个完整日'));
+        datePresetModel.append(_('最近30个完整日'));
+        datePresetModel.append(_('全部历史'));
         datePresetModel.append(_('自定义'));
         datePresetRow.set_model(datePresetModel);
 
         const currentPreset = settings.get_string('date-range-preset');
-        const presetIndex = currentPreset === '7d' ? 1 : currentPreset === '30d' ? 2 : currentPreset === 'custom' ? 3 : 0;
+        const presetIndex = currentPreset === '7d' ? 1
+            : currentPreset === '30d' ? 2
+            : currentPreset === 'all' ? 3
+            : currentPreset === 'custom' ? 4
+            : 0;
         datePresetRow.set_selected(presetIndex);
 
         datePresetRow.connect('notify::selected', () => {
-            const presets = ['today', '7d', '30d', 'custom'];
+            const presets = ['today', '7d', '30d', 'all', 'custom'];
             settings.set_string('date-range-preset', presets[datePresetRow.get_selected()]);
         });
         dateGroup.add(datePresetRow);
@@ -604,6 +609,27 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
             settings.set_string('model-sort-by', modelSortOptions[modelSortByRow.get_selected()]);
         });
         displayGroup.add(modelSortByRow);
+
+        const historyGroup = new Adw.PreferencesGroup({
+            title: _('历史归档'),
+            description: _('历史统计保存在插件专属归档中；同步只补充数据，不会因源日志删除而减少统计。'),
+        });
+        page.add(historyGroup);
+
+        const syncHistoryRow = new Adw.ActionRow({
+            title: _('重新同步历史'),
+            subtitle: _('重新扫描已启用工具的历史日志并补充归档'),
+        });
+        const syncHistoryButton = new Gtk.Button({
+            label: _('开始同步'),
+            valign: Gtk.Align.CENTER,
+        });
+        syncHistoryButton.connect('clicked', () => {
+            settings.set_int('history-sync-generation', settings.get_int('history-sync-generation') + 1);
+        });
+        syncHistoryRow.add_suffix(syncHistoryButton);
+        syncHistoryRow.activatable_widget = syncHistoryButton;
+        historyGroup.add(syncHistoryRow);
 
         const debugGroup = new Adw.PreferencesGroup({
             title: _('调试'),

@@ -260,6 +260,27 @@ export class FileCacheManager {
         return all;
     }
 
+    /**
+     * Drop parsed records outside the active local day while keeping each
+     * file's offset and stat metadata. Subsequent JSONL refreshes continue
+     * from the current tail, so the normal polling path no longer retains a
+     * full historical copy after that history has been archived.
+     */
+    retainEntriesForDate(date) {
+        let changed = false;
+        for (const cached of this._fileCache.values()) {
+            const retained = cached.entries.filter(entry => entry.date === date);
+            if (retained.length !== cached.entries.length) {
+                cached.entries = retained;
+                changed = true;
+            }
+        }
+        if (changed) {
+            this._mergedEntries = null;
+            this._mergedDirty = true;
+        }
+    }
+
     /** Drop all cached state. Used when the cache structure must be rebuilt. */
     clear() {
         this._fileCache.clear();

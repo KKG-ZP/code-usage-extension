@@ -10,7 +10,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { DataSource } from './dataSource.js';
-import { DataProcessor } from './dataProcessor.js';
+import { DataProcessor, _formatLocalDate } from './dataProcessor.js';
 import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 import { setDebugEnabled as setParsersDebugEnabled } from './parsers.js';
@@ -114,9 +114,9 @@ function _attachHoverTooltip(actor, getText, shouldShow, options = {}) {
 function _getDatePresets() {
     return [
         { id: 'today', label: _('今天') },
-        { id: '7d', label: _('7天') },
-        { id: '30d', label: _('30天') },
-        { id: 'all', label: _('全部') },
+        { id: '7d', label: _('近7日') },
+        { id: '30d', label: _('近30日') },
+        { id: 'all', label: _('全部历史') },
     ];
 }
 
@@ -135,6 +135,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._refreshing = false;
         this._refreshQueued = false;
         this._queuedShowPlaceholder = false;
+        this._historySyncing = false;
         this._refreshGeneration = 0;
         this._destroyed = false;
         this._modelExpanded = false;
@@ -219,6 +220,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
                     // Agent set changed → drop cache and rescan from scratch.
                     this._dataSource.clearCache();
                     this._fullRefresh();
+                    break;
+                case 'history-sync-generation':
+                    this._syncHistory();
                     break;
                 case 'cost-currency':
                 case 'cny-exchange-rate':
@@ -883,6 +887,31 @@ class CodeUsageIndicator extends PanelMenu.Button {
         }
     }
 
+    async _syncHistory() {
+        if (this._historySyncing || this._destroyed) return;
+        const agents = this._settings.get_strv('selected-agents');
+        if (agents.length === 0) return;
+
+        this._historySyncing = true;
+        try {
+            // A manual sync deliberately drops the file cache so every
+            // selected source is parsed again before the archive max-merges it.
+            this._dataSource.clearCache();
+            const result = await this._dataSource.scanAndDiff(agents);
+            if (this._destroyed) return;
+            if (result && typeof result.lastActivityAt === 'number') {
+                this._lastActivityAt = result.lastActivityAt;
+            }
+            this._reconcileTimerState();
+            this._archive.syncHistory(this._dataSource.getEntries(), agents, new Date());
+            this._renderFromCache();
+        } catch (e) {
+            console.error(`Code Usage: History sync failed: ${e.message}`);
+        } finally {
+            this._historySyncing = false;
+        }
+    }
+
     /**
      * Pull the current entries snapshot from the cache, run it through
      * DataProcessor, and update the UI. Used by both _fullRefresh (after
@@ -893,11 +922,11 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const liveEntries = agents.length === 0 ? [] : this._dataSource.getEntries();
         let entries = liveEntries;
         if (agents.length > 0) {
-            // Daily archive: snapshot yesterday past the 1 AM gate (no-op
-            // except once per day), then inject archived days whose live logs
-            // were deleted so processEntries aggregates them into every view.
-            this._archive.maybeRunSnapshot(liveEntries, new Date());
-            entries = this._archive.mergeIntoEntries(liveEntries, agents);
+            const now = new Date();
+            this._archive.initializeIfNeeded(liveEntries, agents, now);
+            this._archive.updateActiveDay(liveEntries, now);
+            entries = this._archive.getDisplayEntries(agents, now);
+            this._dataSource.retainEntriesForDate(_formatLocalDate(now));
         }
         this._lastData = this._processor.processEntries(entries);
         this._updateDisplay(this._lastData);

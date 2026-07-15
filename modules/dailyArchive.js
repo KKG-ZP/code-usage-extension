@@ -1,38 +1,30 @@
-// Persistent daily-usage archive.
+// Persistent usage store split into immutable history and a mutable current day.
 //
-// The extension is otherwise a stateless READ-ONLY viewer: every refresh
-// re-reads the agent log files and re-aggregates, so once Claude Code (or any
-// agent) deletes a session log the usage it contained vanishes from the
-// panel's stats. This module owns the extension's FIRST piece of persistent
-// history — a JSON file of per-day snapshots refreshed on a 1h throttle with
-// a MONOTONIC max-merge (a day's record only ever grows, never shrinks: days
-// whose logs got deleted are simply left untouched), plus a merge of archived
-// days back into the live entries so deleted days reappear in every view
-// (daily list / heatmap / per-model cards / totals).
-//
-// Storage lives OUTSIDE the extension install dir
-// (~/.local/share/code-usage-extension/daily-usage.json) so it survives
-// reinstall/uninstall. Token counts are authoritative (never drift); cost
-// is the final CNY value recorded at snapshot time and is re-injected
-// verbatim via the `_finalCostCNY` path in DataProcessor._entryMetrics.
+// Historical days are materialized once from the selected agents and then only
+// grow through an explicit history sync. The current day is checkpointed so a
+// GNOME Shell restart cannot lose usage accumulated before midnight.
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 const TEXT_DECODER = new TextDecoder('utf-8');
 const TEXT_ENCODER = new TextEncoder('utf-8');
-
-const ARCHIVE_VERSION = 1;
-const THROTTLE_MS = 60 * 60 * 1000;   // refresh the archive at most once per hour
+const ARCHIVE_VERSION = 2;
 
 export class DailyArchive {
     constructor(settings, processor) {
         this._settings = settings;
-        this._processor = processor;          // DataProcessor, for computeEntryMetrics
+        this._processor = processor;
         this._path = GLib.build_filenamev(
             [GLib.get_user_data_dir(), 'code-usage-extension', 'daily-usage.json']);
-        this._days = new Map();               // dateStr -> DayRecord
-        this._lastRunMs = 0;                  // in-memory throttle checkpoint (ms epoch)
+        this._historyDays = new Map();
+        this._activeDay = null;
+        this._metadata = {
+            initialized: false,
+            initializedAgents: [],
+            initializedAt: null,
+            lastHistorySyncAt: null,
+        };
         this._load();
     }
 
@@ -45,221 +37,301 @@ export class DailyArchive {
     _load() {
         try {
             const file = Gio.File.new_for_path(this._path);
-            if (!file.query_exists(null)) return;            // first run: empty archive
+            if (!file.query_exists(null)) return;
             const [ok, contents] = file.load_contents(null);
             if (!ok) return;
             const parsed = JSON.parse(TEXT_DECODER.decode(contents));
-            if (parsed && typeof parsed === 'object') {
-                // Only `days` is read; a leftover `lastSnapshotDate` from the
-                // older 1-AM-gate format is ignored (no migration needed).
-                const days = parsed.days || {};
-                for (const [d, rec] of Object.entries(days)) {
-                    if (rec && typeof rec === 'object') this._days.set(d, rec);
-                }
+            if (!parsed || typeof parsed !== 'object') return;
+
+            // v1 used `days` for both historical and current snapshots. Keep
+            // the records, then move today's record into activeDay on first use.
+            const history = parsed.version >= ARCHIVE_VERSION
+                ? (parsed.historyDays || {})
+                : (parsed.days || {});
+            for (const [date, record] of Object.entries(history)) {
+                if (record && typeof record === 'object') this._historyDays.set(date, record);
+            }
+            if (parsed.version >= ARCHIVE_VERSION && parsed.activeDay) {
+                this._activeDay = parsed.activeDay;
+            }
+            if (parsed.metadata && typeof parsed.metadata === 'object') {
+                this._metadata = { ...this._metadata, ...parsed.metadata };
             }
         } catch (e) {
-            // Corrupt/invalid archive: fall back to empty, never crash.
-            this._days = new Map();
+            this._historyDays = new Map();
+            this._activeDay = null;
             this._debug(`archive load failed, starting empty: ${e.message}`);
         }
     }
 
     _persist() {
         try {
-            const dir = GLib.get_dirname(this._path);
-            GLib.mkdir_with_parents(dir, 0o755);              // idempotent; creates the dir if missing
+            GLib.mkdir_with_parents(GLib.get_dirname(this._path), 0o755);
             const payload = {
                 version: ARCHIVE_VERSION,
-                days: Object.fromEntries(this._days),
+                historyDays: Object.fromEntries(this._historyDays),
+                activeDay: this._activeDay,
+                metadata: this._metadata,
             };
-            const bytes = TEXT_ENCODER.encode(JSON.stringify(payload, null, 2));
-            // g_file_set_contents is atomic (temp file + rename + fsync), so a
-            // failed/interrupted write leaves the previous file intact.
-            GLib.file_set_contents(this._path, bytes);
+            // g_file_set_contents writes through a temporary file and rename.
+            GLib.file_set_contents(this._path, TEXT_ENCODER.encode(JSON.stringify(payload, null, 2)));
         } catch (e) {
-            // Disk full / permissions: log and keep going. In-memory state is
-            // still updated; the next successful tick retries the write.
             this._debug(`archive persist failed: ${e.message}`);
         }
     }
 
     /**
-     * Refresh the archive on a THROTTLE_MS cadence using a MONOTONIC
-     * max-merge: for every day still present in the live entries, replace the
-     * archived record only if the live aggregate is LARGER (replace-if-grew,
-     * keyed on totalTokens). Days whose logs were deleted are absent from the
-     * live set and are therefore never touched — so a day's record can only
-     * grow, never shrink. This is what makes interval refresh safe: a naive
-     * re-snapshot after deletion would overwrite a good record with zeros, but
-     * here deleted days are simply left alone (and fully-deleted days are
-     * later re-injected into the panel by mergeIntoEntries).
-     *
-     * Checked on every render tick; the throttle makes it a no-op except
-     * once per hour. Self-heals across suspend/resume, clock skew, DST and
-     * Shell restarts — the first tick whose throttle window has elapsed fires
-     * (and after a Shell restart _lastRunMs is 0, so the first tick fires
-     * immediately, cheaply re-evaluating in memory and writing only if today
-     * actually grew).
-     *
-     * @param entries  live merged entries from cacheManager (has _agent)
-     * @param nowDate  new Date() — pluggable for testing
-     * @returns true if the archive was changed
+     * Complete the one-time import for the currently enabled agents. It never
+     * imports today's records: they belong to the mutable active-day checkpoint.
      */
-    maybeRunSnapshot(entries, nowDate) {
-        if (!entries || entries.length === 0) return false;
-        if (this._lastRunMs && (nowDate.getTime() - this._lastRunMs) < THROTTLE_MS) return false;
+    initializeIfNeeded(entries, selectedAgents, now = new Date()) {
+        const today = _formatLocalDate(now);
+        let changed = this._advanceDay(today);
+        if (!this._metadata.initialized) {
+            changed = this._mergeHistoricalEntries(entries, today) || changed;
+            this._metadata.initialized = true;
+            this._metadata.initializedAgents = [...selectedAgents];
+            this._metadata.initializedAt = now.toISOString();
+            changed = true;
+        }
+        if (changed) this._persist();
+    }
 
-        // Every date still present in the live logs (includes today). Days
-        // whose logs were deleted are NOT here, so they're never overwritten.
-        const presentDates = new Set();
-        for (const e of entries) if (e.date) presentDates.add(e.date);
-
-        let changed = false;
-        for (const d of presentDates) {
-            const live = this._aggregateDay(entries, d);
-            if (!live) continue;
-            const prev = this._days.get(d);
-            // replace-if-grew: only overwrite with a strictly larger snapshot.
-            // Equal totalTokens (a finished day re-scanned, or a price-override
-            // change that moved cost but not tokens) keeps the existing record,
-            // so historical cost is preserved as-recorded rather than revalued.
-            if (!prev || live.totalTokens > prev.totalTokens) {
-                this._days.set(d, live);
+    /**
+     * Update the current-day checkpoint from the live cache. A reduced live
+     * result cannot shrink the checkpoint, protecting the current day if a
+     * source log is removed before it is sealed at midnight.
+     */
+    updateActiveDay(entries, now = new Date()) {
+        const today = _formatLocalDate(now);
+        let changed = this._advanceDay(today);
+        const record = this._aggregateDay(entries, today, now);
+        if (record) {
+            const merged = _mergeRecords(this._activeDay, record, true);
+            if (merged.changed) {
+                this._activeDay = merged.record;
                 changed = true;
             }
         }
-        this._lastRunMs = nowDate.getTime();
         if (changed) this._persist();
+    }
+
+    /**
+     * Explicit, non-destructive history import. Existing days are replaced
+     * only when the newly scanned total token count is larger.
+     */
+    syncHistory(entries, selectedAgents, now = new Date()) {
+        const today = _formatLocalDate(now);
+        let changed = this._advanceDay(today);
+        changed = this._mergeHistoricalEntries(entries, today) || changed;
+        this._metadata.lastHistorySyncAt = now.toISOString();
+        const initializedAgents = Array.isArray(this._metadata.initializedAgents)
+            ? this._metadata.initializedAgents
+            : [];
+        this._metadata.initializedAgents = [...new Set([
+            ...initializedAgents,
+            ...selectedAgents,
+        ])];
+        this._metadata.initialized = true;
+        this._persist();
         return changed;
     }
 
     /**
-     * Aggregate one day's live entries into a DayRecord, computing cost via
-     * DataProcessor.computeEntryMetrics so it matches the panel exactly. Does
-     * NOT apply the user's date-range preset (unlike processEntries), so a
-     * past day can be snapshotted regardless of the current view filter.
-     * Returns null for a zero-usage day (nothing to archive).
+     * Return only plugin-owned records for rendering: frozen historical days
+     * plus the current checkpoint. Raw historical source logs are never mixed
+     * back into totals after the first import.
      */
-    _aggregateDay(entries, dateStr) {
-        const day = entries.filter(e => e.date === dateStr);
-        if (day.length === 0) return null;
+    getDisplayEntries(selectedAgents, now = new Date()) {
+        const today = _formatLocalDate(now);
+        if (this._advanceDay(today)) this._persist();
+        const selected = new Set(selectedAgents);
+        const entries = [];
+        for (const record of this._historyDays.values()) {
+            entries.push(...this._recordEntries(record, selected));
+        }
+        if (this._activeDay && this._activeDay.date === today) {
+            entries.push(...this._recordEntries(this._activeDay, selected));
+        }
+        return entries;
+    }
 
-        const exchangeRate = this._settings.get_double('cny-exchange-rate');
-        const costMultiplier = this._settings.get_double('cost-multiplier');
+    _advanceDay(today) {
+        let changed = false;
+        // v1 migration: today's old snapshot becomes the active checkpoint.
+        const legacyToday = this._historyDays.get(today);
+        if (legacyToday) {
+            this._activeDay = _mergeRecords(this._activeDay, legacyToday, true).record;
+            this._historyDays.delete(today);
+            changed = true;
+        }
+        if (this._activeDay && this._activeDay.date < today) {
+            changed = this._mergeHistoryRecord(this._activeDay) || changed;
+            this._activeDay = null;
+            changed = true;
+        }
+        return changed;
+    }
 
-        let inputTokens = 0, outputTokens = 0,
-            cacheCreationTokens = 0, cacheReadTokens = 0,
-            totalTokens = 0, cost = 0, requestCount = 0;
+    _mergeHistoricalEntries(entries, today) {
+        const dates = new Set();
+        for (const entry of entries || []) {
+            if (entry.date && entry.date < today) dates.add(entry.date);
+        }
+        let changed = false;
+        for (const date of dates) {
+            const record = this._aggregateDay(entries, date, new Date());
+            if (record) changed = this._mergeHistoryRecord(record) || changed;
+        }
+        return changed;
+    }
+
+    _mergeHistoryRecord(record) {
+        const merged = _mergeRecords(this._historyDays.get(record.date), record, false);
+        if (merged.changed) {
+            this._historyDays.set(record.date, merged.record);
+            return true;
+        }
+        return false;
+    }
+
+    _aggregateDay(entries, date, now) {
+        const dayEntries = (entries || []).filter(entry => entry.date === date);
+        if (dayEntries.length === 0) return null;
+
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let cacheCreationTokens = 0;
+        let cacheReadTokens = 0;
+        let totalTokens = 0;
+        let cost = 0;
+        let requestCount = 0;
         const breakdown = {};
 
-        for (const e of day) {
-            const m = this._processor.computeEntryMetrics(e);
-            const agent = m.agent;
-            const model = m.model || e.model || 'unknown';
-            const compositeKey = `${agent}:${model}`;        // matches dataProcessor.js:92
+        for (const entry of dayEntries) {
+            const metrics = this._processor.computeEntryMetrics(entry);
+            const agent = metrics.agent;
+            const model = metrics.model || entry.model || 'unknown';
+            const key = `${agent}:${model}`;
+            const requests = _entryRequestCount(entry);
 
-            inputTokens += m.usage.inputTokens;
-            outputTokens += m.usage.outputTokens;
-            cacheCreationTokens += m.usage.cacheCreationTokens;
-            cacheReadTokens += m.usage.cacheReadTokens;
-            totalTokens += m.tokenAccounting.totalTokens;
-            cost += m.entryCost;
-            requestCount += 1;
+            inputTokens += metrics.usage.inputTokens;
+            outputTokens += metrics.usage.outputTokens;
+            cacheCreationTokens += metrics.usage.cacheCreationTokens;
+            cacheReadTokens += metrics.usage.cacheReadTokens;
+            totalTokens += metrics.tokenAccounting.totalTokens;
+            cost += metrics.entryCost;
+            requestCount += requests;
 
-            if (!breakdown[compositeKey]) {
-                breakdown[compositeKey] = {
+            if (!breakdown[key]) {
+                breakdown[key] = {
                     agent, model,
                     inputTokens: 0, outputTokens: 0,
                     cacheCreationTokens: 0, cacheReadTokens: 0,
                     totalTokens: 0, cost: 0, requestCount: 0,
                 };
             }
-            const bd = breakdown[compositeKey];
-            bd.inputTokens += m.usage.inputTokens;
-            bd.outputTokens += m.usage.outputTokens;
-            bd.cacheCreationTokens += m.usage.cacheCreationTokens;
-            bd.cacheReadTokens += m.usage.cacheReadTokens;
-            bd.totalTokens += m.tokenAccounting.totalTokens;
-            bd.cost += m.entryCost;
-            bd.requestCount += 1;
+            const row = breakdown[key];
+            row.inputTokens += metrics.usage.inputTokens;
+            row.outputTokens += metrics.usage.outputTokens;
+            row.cacheCreationTokens += metrics.usage.cacheCreationTokens;
+            row.cacheReadTokens += metrics.usage.cacheReadTokens;
+            row.totalTokens += metrics.tokenAccounting.totalTokens;
+            row.cost += metrics.entryCost;
+            row.requestCount += requests;
         }
 
         return {
-            date: dateStr,
+            date,
             inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens,
-            totalTokens, cost, requestCount,
-            breakdown,
-            snapshottedAt: new Date().toISOString(),
-            exchangeRate, costMultiplier,
+            totalTokens, cost, requestCount, breakdown,
+            snapshottedAt: now.toISOString(),
+            exchangeRate: this._settings.get_double('cny-exchange-rate'),
+            costMultiplier: this._settings.get_double('cost-multiplier'),
             currency: 'CNY',
         };
     }
 
-    /**
-     * Inject archived days into the live entries so processEntries aggregates
-     * them uniformly into daily / totals / heatmap / per-model cards.
-     * Only days with ZERO live entries are injected whole (live
-     * data fully deleted). Days that still have live entries delegate to
-     * _mergeRuleForDay (partial-deletion recovery).
-     *
-     * Only archived breakdown rows whose agent is currently selected are
-     * injected, so switching the view to a different agent set never leaks
-     * another agent's archived days into it.
-     *
-     * Synthetic entries are injected AFTER cacheManager.getMergedEntries, so
-     * they bypass _dedupeKey dedup (no risk of being dropped or double-counted).
-     */
-    mergeIntoEntries(liveEntries, selectedAgents) {
-        const selected = new Set(selectedAgents);
-        const liveDates = new Set();
-        for (const e of liveEntries) {
-            if (e.date) liveDates.add(e.date);
+    _recordEntries(record, selected) {
+        const entries = [];
+        for (const row of Object.values(record.breakdown || {})) {
+            if (!selected.has(row.agent)) continue;
+            entries.push({
+                date: record.date,
+                model: row.model,
+                _agent: row.agent,
+                inputTokens: row.inputTokens,
+                outputTokens: row.outputTokens,
+                cacheCreationTokens: row.cacheCreationTokens,
+                cacheReadTokens: row.cacheReadTokens,
+                requestCount: _entryRequestCount(row),
+                costUSD: null,
+                _finalCostCNY: row.cost,
+                _fromArchive: true,
+            });
         }
-        const synthetic = [];
-        for (const [dateStr, rec] of this._days) {
-            if (liveDates.has(dateStr)) {
-                const liveForDay = liveEntries.filter(e => e.date === dateStr);
-                const extra = this._mergeRuleForDay(dateStr, liveForDay, rec, selectedAgents);
-                if (extra && extra.length) synthetic.push(...extra);
-                continue;
-            }
-            // Live has nothing for this day (logs fully deleted): rebuild the
-            // archived day as one synthetic entry per (agent:model) breakdown.
-            for (const bd of Object.values(rec.breakdown || {})) {
-                if (!selected.has(bd.agent)) continue;       // only currently-selected agents
-                synthetic.push({
-                    date: dateStr,
-                    model: bd.model,
-                    _agent: bd.agent,
-                    inputTokens: bd.inputTokens,
-                    outputTokens: bd.outputTokens,
-                    cacheCreationTokens: bd.cacheCreationTokens,
-                    cacheReadTokens: bd.cacheReadTokens,
-                    costUSD: null,           // do NOT use the USD path
-                    _finalCostCNY: bd.cost,   // precomputed final CNY (see dataProcessor._entryMetrics)
-                    _fromArchive: true,       // tag for debugging
-                });
-            }
-        }
-        return synthetic.length > 0 ? [...liveEntries, ...synthetic] : liveEntries;
+        return entries;
+    }
+}
+
+function _entryRequestCount(entry) {
+    const count = Number(entry.requestCount);
+    return Number.isFinite(count) && count > 0 ? count : 1;
+}
+
+function _mergeRecords(previous, candidate, replaceEqualRows) {
+    if (!previous || previous.date !== candidate.date) {
+        return { record: candidate, changed: true };
     }
 
-    /**
-     * Decide how a day that has BOTH live entries and an archived snapshot
-     * combines. Called once per archived day that has any live entries.
-     *
-     * Strategy: live-wins — when any live data exists for a day, trust it
-     * entirely and ignore the archive. This never double-counts and is safe
-     * even if Claude Code appends to old sessions. The trade-off is that
-     * partially-deleted days (some sessions removed but others remain) stay
-     * at the reduced live total rather than recovering to the archived peak.
-     *
-     * @param liveForDay       live entries with entry.date === dateStr
-     * @param archivedRec      the DayRecord snapshotted before deletion
-     * @param selectedAgents   array of currently-selected agent ids
-     * @returns synthetic entries to inject as a delta, or [] to inject nothing
-     */
-    _mergeRuleForDay(dateStr, liveForDay, archivedRec, selectedAgents) {
-        return [];
+    const breakdown = { ...(previous.breakdown || {}) };
+    let changed = false;
+    for (const [key, candidateRow] of Object.entries(candidate.breakdown || {})) {
+        const previousRow = breakdown[key];
+        if (!previousRow || candidateRow.totalTokens > previousRow.totalTokens ||
+            (replaceEqualRows && candidateRow.totalTokens === previousRow.totalTokens &&
+                JSON.stringify(candidateRow) !== JSON.stringify(previousRow))) {
+            breakdown[key] = candidateRow;
+            changed = true;
+        }
     }
+    if (!changed) return { record: previous, changed: false };
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheCreationTokens = 0;
+    let cacheReadTokens = 0;
+    let totalTokens = 0;
+    let cost = 0;
+    let requestCount = 0;
+    for (const row of Object.values(breakdown)) {
+        inputTokens += row.inputTokens;
+        outputTokens += row.outputTokens;
+        cacheCreationTokens += row.cacheCreationTokens;
+        cacheReadTokens += row.cacheReadTokens;
+        totalTokens += row.totalTokens;
+        cost += row.cost;
+        requestCount += row.requestCount;
+    }
+    return {
+        record: {
+            ...candidate,
+            inputTokens,
+            outputTokens,
+            cacheCreationTokens,
+            cacheReadTokens,
+            totalTokens,
+            cost,
+            requestCount,
+            breakdown,
+        },
+        changed: true,
+    };
+}
+
+function _formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }

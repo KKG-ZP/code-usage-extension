@@ -272,6 +272,11 @@ export class DataSource {
         return this._cache.getMergedEntries();
     }
 
+    /** Keep the live cache bounded to the current local day after archiving. */
+    retainEntriesForDate(date) {
+        this._cache.retainEntriesForDate(date);
+    }
+
     /** Drop all cached state. Used when the agent set must be rescanned cold. */
     clearCache() {
         this._cache.clear();

@@ -54,7 +54,9 @@ export class DataProcessor {
             // Entries without a parseable date (e.g. Kiro turns missing
             // timestamp fields) are dropped rather than mis-attributed.
             if (!entry.date) continue;
-            if (!entry._fromArchive && !dateFilter(entry.date)) continue;
+            if (!dateFilter(entry.date)) continue;
+
+            const requestCount = _entryRequestCount(entry);
 
             const {
                 agent,
@@ -65,7 +67,7 @@ export class DataProcessor {
                 entryCost,
             } = this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap });
 
-            totalRequests += 1;
+            totalRequests += requestCount;
             totalInputTokens += usage.inputTokens;
             totalOutputTokens += usage.outputTokens;
             totalCacheCreationTokens += usage.cacheCreationTokens;
@@ -116,7 +118,7 @@ export class DataProcessor {
             modelStats[compositeKey].totalCost += entryCost;
             modelStats[compositeKey].totalTokens += tokenAccounting.totalTokens;
             modelStats[compositeKey].cacheHitDenominator += tokenAccounting.cacheHitDenominator;
-            modelStats[compositeKey].requestCount += 1;
+            modelStats[compositeKey].requestCount += requestCount;
             if (statsMode === 'agent') modelStats[compositeKey].modelSet.add(modelKey);
 
             if (!dailyMap[entry.date]) {
@@ -133,7 +135,7 @@ export class DataProcessor {
             dailyMap[entry.date].cacheReadTokens += usage.cacheReadTokens;
             dailyMap[entry.date].cost += entryCost;
             dailyMap[entry.date].totalTokens += tokenAccounting.totalTokens;
-            dailyMap[entry.date].requestCount += 1;
+            dailyMap[entry.date].requestCount += requestCount;
         }
 
         const cacheHitRate = totalCacheHitDenominator > 0
@@ -275,24 +277,24 @@ export class DataProcessor {
 
         if (preset === 'today') {
             const todayStr = today;
-            return (date) => date >= todayStr;
+            return (date) => date === todayStr;
         }
         if (preset === '7d') {
-            // Include today as day 1: 7 calendar days total (today - 6 .. today).
+            // Seven complete local calendar days: yesterday back to today - 7.
             const sinceDate = new Date();
-            sinceDate.setDate(sinceDate.getDate() - 6);
+            sinceDate.setDate(sinceDate.getDate() - 7);
             const since = _formatLocalDate(sinceDate);
-            return (date) => date >= since;
+            return (date) => date >= since && date < today;
         }
         if (preset === '30d') {
-            // Include today as day 1: 30 calendar days total (today - 29 .. today).
+            // Thirty complete local calendar days: yesterday back to today - 30.
             const sinceDate = new Date();
-            sinceDate.setDate(sinceDate.getDate() - 29);
+            sinceDate.setDate(sinceDate.getDate() - 30);
             const since = _formatLocalDate(sinceDate);
-            return (date) => date >= since;
+            return (date) => date >= since && date < today;
         }
         if (preset === 'all') {
-            return () => true;
+            return (date) => date < today;
         }
         if (preset === 'custom' && (customSince || customUntil)) {
             const since = customSince || '';
@@ -340,7 +342,7 @@ export class DataProcessor {
                 dailyMap[entry.date] = { totalTokens: 0, requestCount: 0 };
             }
             dailyMap[entry.date].totalTokens += tokenAccounting.totalTokens;
-            dailyMap[entry.date].requestCount += 1;
+            dailyMap[entry.date].requestCount += _entryRequestCount(entry);
         }
 
         const heatmapWeeks = [];
@@ -424,6 +426,11 @@ function _tokenHeatLevel(tokens, maxTokens) {
     if (ratio <= 0.5) return 2;
     if (ratio <= 0.75) return 3;
     return 4;
+}
+
+function _entryRequestCount(entry) {
+    const count = Number(entry.requestCount);
+    return Number.isFinite(count) && count > 0 ? count : 1;
 }
 
 export function _formatLocalDate(date) {
