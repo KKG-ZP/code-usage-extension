@@ -413,20 +413,29 @@
 }
 
 .cu-stats-mode-button-row {
-    spacing: 6px;
+    spacing: 2px;
+    padding: 2px;
+    border-radius: 7px;
+    background-color: rgba(0, 0, 0, 0.06);
 }
 
 .cu-stats-mode-button {
-    padding: 3px 10px;
-    border-radius: 14px;
-    background-color: rgba(0, 0, 0, 0.06);
+    width: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    height: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0;
+    border-radius: 5px;
+    background-color: transparent;
     color: #333333;
     font-size: 11px;
     font-weight: 500;
 }
 
 .cu-stats-mode-button:hover {
-    background-color: rgba(0, 0, 0, 0.12);
+    background-color: rgba(0, 0, 0, 0.08);
     color: #1a1a1a;
 }
 

@@ -429,9 +429,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
 
         const _statsModePresets = [
-            { id: 'agent-model', label: _('All') },
-            { id: 'model', label: _('Model') },
-            { id: 'agent', label: _('Agent') },
+            // The default view is a per-tool, per-model breakdown rather
+            // than an undifferentiated total, so "明细" is more accurate
+            // than the previous "All" label.
+            { id: 'agent-model', label: _('明细') },
+            { id: 'model', label: _('模型') },
+            { id: 'agent', label: _('工具') },
         ];
 
         this._statsModeButtons = {};
