@@ -411,11 +411,50 @@ class CodeUsageIndicator extends PanelMenu.Button {
             vertical: true,
             x_expand: true,
         });
+        const modelHeader = new St.BoxLayout({
+            vertical: false,
+            x_expand: true,
+        });
         const modelTitle = new St.Label({
             text: _('模型'),
             style_class: 'cu-section-title',
+            x_expand: true,
         });
-        modelSectionBox.add_child(modelTitle);
+        modelHeader.add_child(modelTitle);
+
+        const statsModeButtonRow = new St.BoxLayout({
+            style_class: 'cu-stats-mode-button-row',
+            vertical: false,
+            x_align: Clutter.ActorAlign.END,
+        });
+
+        const _statsModePresets = [
+            { id: 'agent-model', label: _('All') },
+            { id: 'model', label: _('Model') },
+            { id: 'agent', label: _('Agent') },
+        ];
+
+        this._statsModeButtons = {};
+        for (const preset of _statsModePresets) {
+            const btn = new St.Button({
+                style_class: 'cu-stats-mode-button',
+                reactive: true,
+                can_focus: true,
+                label: preset.label,
+            });
+            btn.connect('clicked', () => {
+                const current = this._settings.get_string('stats-mode');
+                if (preset.id === current) return;
+                this._modelExpanded = false;
+                this._modelPage = 0;
+                this._settings.set_string('stats-mode', preset.id);
+                this._updateStatsModeButtonStyles();
+            });
+            this._statsModeButtons[preset.id] = btn;
+            statsModeButtonRow.add_child(btn);
+        }
+        modelHeader.add_child(statsModeButtonRow);
+        modelSectionBox.add_child(modelHeader);
 
         this._modelListContainer = new St.BoxLayout({
             style_class: 'cu-model-list',
@@ -638,6 +677,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(dateItem);
 
         this._updateDateButtonStyles();
+        this._updateStatsModeButtonStyles();
     }
 
     _createStatCard(labelText, valueText, extraClass, labelAlign = Clutter.ActorAlign.START, xExpand = true) {
@@ -666,6 +706,17 @@ class CodeUsageIndicator extends PanelMenu.Button {
         const currentPreset = this._settings.get_string('date-range-preset');
         for (const [id, btn] of Object.entries(this._dateButtons)) {
             if (id === currentPreset) {
+                btn.add_style_class_name('active');
+            } else {
+                btn.remove_style_class_name('active');
+            }
+        }
+    }
+
+    _updateStatsModeButtonStyles() {
+        const current = this._settings.get_string('stats-mode');
+        for (const [id, btn] of Object.entries(this._statsModeButtons)) {
+            if (id === current) {
                 btn.add_style_class_name('active');
             } else {
                 btn.remove_style_class_name('active');
@@ -982,6 +1033,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
         // closures on progress bars are properly released, avoiding
         // GObject↔JS reference cycles that GJS's GC can't reliably collect.
         this._modelListContainer.destroy_all_children();
+
+        this._updateStatsModeButtonStyles();
 
         const models = this._modelListData;
         const statsMode = this._settings.get_string('stats-mode');

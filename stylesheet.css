@@ -412,6 +412,29 @@
     color: #ffffff;
 }
 
+.cu-stats-mode-button-row {
+    spacing: 6px;
+}
+
+.cu-stats-mode-button {
+    padding: 3px 10px;
+    border-radius: 14px;
+    background-color: rgba(0, 0, 0, 0.06);
+    color: #333333;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.cu-stats-mode-button:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+    color: #1a1a1a;
+}
+
+.cu-stats-mode-button.active {
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
 
 /* Tighten the vertical spacing between major popup sections */
 .popup-separator-menu-item {

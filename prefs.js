@@ -605,24 +605,6 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         });
         displayGroup.add(modelSortByRow);
 
-        const statsModeRow = new Adw.ComboRow({
-            title: _('模型明细分组'),
-            subtitle: _('模型明细的统计分组方式'),
-        });
-        const statsModeModel = new Gtk.StringList();
-        statsModeModel.append(_('按 agent + 模型'));
-        statsModeModel.append(_('按模型（跨 agent 合并）'));
-        statsModeModel.append(_('按 agent（跨模型合并）'));
-        statsModeRow.set_model(statsModeModel);
-        const statsModeOptions = ['agent-model', 'model', 'agent'];
-        const currentStatsMode = settings.get_string('stats-mode');
-        const statsModeIndex = statsModeOptions.indexOf(currentStatsMode);
-        statsModeRow.set_selected(statsModeIndex >= 0 ? statsModeIndex : 0);
-        statsModeRow.connect('notify::selected', () => {
-            settings.set_string('stats-mode', statsModeOptions[statsModeRow.get_selected()]);
-        });
-        displayGroup.add(statsModeRow);
-
         const debugGroup = new Adw.PreferencesGroup({
             title: _('调试'),
             description: _('调试选项'),
