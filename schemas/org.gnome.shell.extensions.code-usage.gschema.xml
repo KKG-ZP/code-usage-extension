@@ -99,7 +99,12 @@
     <key name="history-sync-generation" type="i">
       <default>0</default>
       <summary>历史归档同步请求</summary>
-      <description>每次递增时，扩展重新扫描已启用工具的历史日志，并以只增不减的方式补充归档。</description>
+      <description>每次递增时，扩展增量扫描已启用工具的新增或变化日志，并以只增不减的方式补充归档。</description>
+    </key>
+    <key name="worker-generation" type="i">
+      <default>0</default>
+      <summary>Worker 扫描请求</summary>
+      <description>每次递增时，扩展启动独立 usage-worker 子进程重新扫描已启用代理的日志并刷新 compact-snapshot.json。Worker 在独立进程内完成重解析，Shell 仅读取快照。</description>
     </key>
   </schema>
 </schemalist>

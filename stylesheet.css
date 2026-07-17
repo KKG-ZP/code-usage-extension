@@ -195,6 +195,10 @@
     x-expand: true;
 }
 
+.cu-model-count {
+    font-size: 10px;
+}
+
 .cu-model-cost {
     font-size: 12px;
     font-weight: 700;

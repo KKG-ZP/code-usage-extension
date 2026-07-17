@@ -13,6 +13,7 @@ cp -r "$SCRIPT_DIR/metadata.json" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/prefs.js" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/stylesheet.css" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/modules" "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/worker" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/icons" "$INSTALL_DIR/"
 mkdir -p "$INSTALL_DIR/schemas"
 cp -r "$SCRIPT_DIR/schemas/org.gnome.shell.extensions.code-usage.gschema.xml" "$INSTALL_DIR/schemas/"
@@ -25,9 +26,9 @@ echo ""
 
 # Check for optional sqlite3 dependency
 if command -v sqlite3 &>/dev/null; then
-    echo "sqlite3: found (required for OpenCode, Goose, Hermes, Kilo)"
+    echo "sqlite3: found (required for OpenCode, Goose, Hermes, Kilo, ZCode)"
 else
-    echo "WARNING: sqlite3 not found. OpenCode/Goose/Hermes/Kilo agents require sqlite3 CLI."
+    echo "WARNING: sqlite3 not found. OpenCode/Goose/Hermes/Kilo/ZCode agents require sqlite3 CLI."
     echo "  Install with: sudo apt install sqlite3  (or your distro's equivalent)"
 fi
 echo ""

@@ -14,7 +14,6 @@ import { DataProcessor, _formatLocalDate } from './dataProcessor.js';
 import { IDLE_THRESHOLD_MS } from './cacheManager.js';
 import { AGENT_BRAND_COLORS, AGENT_BRAND_TEXT_COLORS } from './defaultPricing.js';
 import { setDebugEnabled as setParsersDebugEnabled } from './parsers.js';
-import { DailyArchive } from './dailyArchive.js';
 
 let _ = (s) => s;
 
@@ -128,9 +127,12 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._extensionPath = extensionPath;
         this._settings = settings;
         this._openPreferences = openPreferences;
-        this._dataSource = new DataSource(settings);
+        this._dataSource = new DataSource(settings, extensionPath);
         this._processor = new DataProcessor(settings);
-        this._archive = new DailyArchive(settings, this._processor);
+        // DailyArchive is no longer instantiated in the Shell: the snapshot
+        // is the single source of truth now. The DailyArchive class remains
+        // in modules/dailyArchive.js for the stage-6 legacy migration reader
+        // (the worker will import it when converting daily-usage.json).
         this._lastData = null;
         this._refreshing = false;
         this._refreshQueued = false;
@@ -138,6 +140,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._historySyncing = false;
         this._refreshGeneration = 0;
         this._destroyed = false;
+        this._selectedAgents = new Set(this._settings.get_strv('selected-agents'));
         this._modelExpanded = false;
         this._modelPage = 0;
         this._modelListData = [];
@@ -149,10 +152,13 @@ class CodeUsageIndicator extends PanelMenu.Button {
         // second; without coalescing, each one triggers a full reprocess.
         this._reprocessDebounceId = 0;
         this._timerRestartDebounceId = 0;
-        // Adaptive timer state: 'active' uses active-refresh-interval, 'idle'
-        // uses idle-refresh-interval. Transitions happen after each scan
-        // based on how long ago the most recent log write was.
-        this._intervalState = 'idle';
+        // Stage 5: FileMonitor + debounce replaces the active/idle poll loop.
+        // A file change marks agents dirty; a 2s debounce coalesces the burst
+        // before triggering one worker scan of just the dirty agents.
+        this._fileMonitorDebounceId = 0;
+        // Low-frequency reconciliation timer (fallback for FileMonitor event
+        // loss): re-scan all selected agents every 10 min.
+        this._reconcileTimerId = 0;
         this._lastActivityAt = 0;
         // Propagate the initial debug-mode flag to the parser layer so its
         // swallowed exceptions become visible when the user opts in.
@@ -208,7 +214,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
             switch (key) {
                 case 'active-refresh-interval':
                 case 'idle-refresh-interval':
-                    this._debouncedRestartTimer();
+                    // Stage 5: the idle interval drives the reconciliation
+                    // timer cadence; rebuild it so the new cadence applies.
+                    this._setupMonitorsAndReconcile();
                     break;
                 case 'display-mode':
                     this._updateDisplayMode();
@@ -217,11 +225,20 @@ class CodeUsageIndicator extends PanelMenu.Button {
                     this._updateIconVisibility();
                     break;
                 case 'selected-agents':
-                    // Agent set changed → drop cache and rescan from scratch.
-                    this._dataSource.clearCache();
+                    // A changed agent set needs a fresh worker scan so the
+                    // snapshot reflects the new selection. The worker skips
+                    // unchanged files, so re-enabling an agent is cheap.
+                    this._selectedAgents = new Set(settings.get_strv('selected-agents'));
+                    // Stage 5: rebuild FileMonitors for the new agent set.
+                    this._setupMonitorsAndReconcile();
                     this._fullRefresh();
                     break;
                 case 'history-sync-generation':
+                case 'worker-generation':
+                    // Both trigger a worker re-scan (the worker rebuilds the
+                    // snapshot; the Shell just reloads it). worker-generation
+                    // is the new canonical trigger; history-sync-generation
+                    // is retained for prefs UI compatibility.
                     this._syncHistory();
                     break;
                 case 'cost-currency':
@@ -249,7 +266,9 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
 
         this._fullRefresh({ showPlaceholder: true });
-        this._startTimer();
+        // Stage 5: FileMonitor-driven refresh + low-frequency reconciliation
+        // replace the fixed-cadence poll loop.
+        this._setupMonitorsAndReconcile();
     }
 
     _loadIcon(path) {
@@ -741,28 +760,96 @@ class CodeUsageIndicator extends PanelMenu.Button {
         return Math.max(1, this._settings.get_int(key));
     }
 
-    _startTimer() {
-        const interval = this._currentIntervalSeconds();
-        this._timerId = GLib.timeout_add_seconds(
-            GLib.PRIORITY_DEFAULT,
-            interval,
-            () => {
+    /**
+     * Stage 5: set up FileMonitors on the selected agents' log dirs and a
+     * low-frequency reconciliation timer (fallback for lost monitor events).
+     * A file change marks the agent dirty; a 2s debounce coalesces the burst
+     * into a single worker scan of just the dirty agents.
+     */
+    _setupMonitorsAndReconcile() {
+        this._teardownMonitorsAndReconcile();
+        const agents = this._settings.get_strv('selected-agents');
+        if (agents.length === 0) return;
+        this._dataSource.setupFileMonitors(agents, (dirtyAgents) => {
+            this._debouncedDirtyScan(dirtyAgents);
+        });
+        // Low-frequency reconciliation: catch FileMonitor event loss. Use
+        // idle-refresh-interval as the cadence (it's the long one).
+        const interval = Math.max(60, this._settings.get_int('idle-refresh-interval'));
+        this._reconcileTimerId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT, interval, () => {
                 this._fullRefresh();
                 return GLib.SOURCE_CONTINUE;
-            }
-        );
+            });
     }
 
-    _stopTimer() {
-        if (this._timerId) {
-            GLib.source_remove(this._timerId);
-            this._timerId = null;
+    _teardownMonitorsAndReconcile() {
+        if (this._fileMonitorDebounceId) {
+            GLib.source_remove(this._fileMonitorDebounceId);
+            this._fileMonitorDebounceId = 0;
+        }
+        if (this._reconcileTimerId) {
+            GLib.source_remove(this._reconcileTimerId);
+            this._reconcileTimerId = 0;
+        }
+        this._dataSource.destroyFileMonitors();
+    }
+
+    /**
+     * Debounce a burst of FileMonitor events into one worker scan. 2s so a
+     * rapid log-write burst produces a single scan rather than dozens.
+     */
+    _debouncedDirtyScan(dirtyAgents) {
+        // Merge with any already-pending dirty set.
+        if (!this._pendingDirtyAgents) this._pendingDirtyAgents = new Set();
+        for (const a of dirtyAgents) this._pendingDirtyAgents.add(a);
+        if (this._fileMonitorDebounceId) {
+            GLib.source_remove(this._fileMonitorDebounceId);
+        }
+        this._fileMonitorDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+            this._fileMonitorDebounceId = 0;
+            const agents = [...this._pendingDirtyAgents];
+            this._pendingDirtyAgents = null;
+            if (agents.length > 0 && !this._destroyed) {
+                this._fullRefreshForAgents(agents);
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /**
+     * Scan only the dirty agents (a subset of the full set), then reload +
+     * render. Used by the FileMonitor path so an agent writing logs doesn't
+     * re-scan every other agent too.
+     */
+    async _fullRefreshForAgents(agents) {
+        const generation = ++this._refreshGeneration;
+        this._refreshing = true;
+        try {
+            await this._dataSource.scanAndDiff(agents);
+            if (generation !== this._refreshGeneration || this._destroyed) return;
+            this._renderFromCache();
+        } catch (e) {
+            console.error(`Code Usage: dirty scan failed: ${e.message}`);
+        } finally {
+            this._refreshing = false;
         }
     }
 
+    _startTimer() {
+        // Stage 5: no longer used — FileMonitor + reconciliation replaced the
+        // fixed poll loop. Kept as a no-op so settings handlers that still
+        // reference it don't throw.
+    }
+
+    _stopTimer() {
+        // Stage 5: no-op (see _startTimer). Timer teardown is now in
+        // _teardownMonitorsAndReconcile.
+    }
+
     _restartTimer() {
-        this._stopTimer();
-        this._startTimer();
+        // Stage 5: FileMonitor setup is re-done on agent-set change; the
+        // reconciliation timer uses a fixed idle cadence so no restart needed.
     }
 
     /**
@@ -782,34 +869,17 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
     /** Same idea for timer restarts — avoid stop/start churn mid-drag. */
     _debouncedRestartTimer() {
-        if (this._timerRestartDebounceId) {
-            GLib.source_remove(this._timerRestartDebounceId);
-        }
-        this._timerRestartDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
-            this._timerRestartDebounceId = 0;
-            this._restartTimer();
-            return GLib.SOURCE_REMOVE;
-        });
+        // Stage 5: no-op. The reconciliation cadence is fixed; interval changes
+        // take effect on the next _setupMonitorsAndReconcile (agent-set change).
     }
 
     /**
-     * After every scan, decide whether the agent has been "actively" writing
-     * recently (within IDLE_THRESHOLD_MS) or is idle, and switch the timer
-     * cadence if needed. Called from _fullRefresh after scanAndDiff completes
-     * so it sees the freshest mtime data.
+     * Stage 5: the active/idle state machine is gone (FileMonitor drives
+     * immediate refreshes). Kept as a no-op so _fullRefresh / _syncHistory
+     * callers don't need updating.
      */
     _reconcileTimerState() {
-        const sinceActivityMs = Date.now() - this._lastActivityAt;
-        const newState = sinceActivityMs < IDLE_THRESHOLD_MS ? 'active' : 'idle';
-        if (newState === this._intervalState) return;
-
-        const oldInterval = this._currentIntervalSeconds();
-        this._intervalState = newState;
-        const newInterval = this._currentIntervalSeconds();
-        if (this._settings.get_boolean('debug-mode')) {
-            console.log(`Code Usage: interval ${oldInterval}s -> ${newInterval}s (${newState})`);
-        }
-        this._restartTimer();
+        // no-op
     }
 
     async _fullRefresh({ showPlaceholder = false } = {}) {
@@ -846,7 +916,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
             }
             if (generation !== this._refreshGeneration) return;
             this._reconcileTimerState();
-            this._renderFromCache();
+            this._renderFromCache({ importPendingAgentHistory: true });
         } catch (e) {
             if (generation !== this._refreshGeneration) return;
             console.error(`Code Usage: Refresh failed: ${e.message}`);
@@ -880,6 +950,10 @@ class CodeUsageIndicator extends PanelMenu.Button {
      * pricing overrides, etc.) — no file IO at all.
      */
     _quickReprocess() {
+        // A cold scan publishes atomically at completion. Rendering while it
+        // is in flight would see the previous (possibly empty) snapshot and
+        // could incorrectly initialize the persistent archive from it.
+        if (this._refreshing) return;
         try {
             this._renderFromCache();
         } catch (e) {
@@ -894,16 +968,15 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
         this._historySyncing = true;
         try {
-            // A manual sync deliberately drops the file cache so every
-            // selected source is parsed again before the archive max-merges it.
-            this._dataSource.clearCache();
+            // Stage 1: a history-sync request just triggers a worker re-scan.
+            // The worker rebuilds the snapshot (including historical days);
+            // the Shell reloads it. No in-Shell archive merge anymore.
             const result = await this._dataSource.scanAndDiff(agents);
             if (this._destroyed) return;
             if (result && typeof result.lastActivityAt === 'number') {
                 this._lastActivityAt = result.lastActivityAt;
             }
             this._reconcileTimerState();
-            this._archive.syncHistory(this._dataSource.getEntries(), agents, new Date());
             this._renderFromCache();
         } catch (e) {
             console.error(`Code Usage: History sync failed: ${e.message}`);
@@ -917,18 +990,19 @@ class CodeUsageIndicator extends PanelMenu.Button {
      * DataProcessor, and update the UI. Used by both _fullRefresh (after
      * scanning) and _quickReprocess (settings-only path).
      */
-    _renderFromCache() {
+    _renderFromCache({ importPendingAgentHistory = false } = {}) {
+        // Stage 1: the snapshot is the single source of truth. The Shell no
+        // longer drives initializeIfNeeded / completeHistoryImport /
+        // syncHistory / updateActiveDay / getDisplayEntries — those ran raw
+        // log aggregation inside the Shell process. DailyArchive is kept
+        // only for the stage-6 legacy migration reader; it does not feed
+        // the panel anymore.
+        // Stage 4: DataProcessor consumes the snapshot's pre-aggregated
+        // dailyUsage rows directly (processAggregatedRows), bypassing the
+        // per-entry loop. The rows already carry a locked-in CNY cost.
         const agents = this._settings.get_strv('selected-agents');
-        const liveEntries = agents.length === 0 ? [] : this._dataSource.getEntries();
-        let entries = liveEntries;
-        if (agents.length > 0) {
-            const now = new Date();
-            this._archive.initializeIfNeeded(liveEntries, agents, now);
-            this._archive.updateActiveDay(liveEntries, now);
-            entries = this._archive.getDisplayEntries(agents, now);
-            this._dataSource.retainEntriesForDate(_formatLocalDate(now));
-        }
-        this._lastData = this._processor.processEntries(entries);
+        const rows = agents.length === 0 ? [] : this._dataSource.getDailyUsage();
+        this._lastData = this._processor.processAggregatedRows(rows);
         this._updateDisplay(this._lastData);
     }
 
@@ -1112,12 +1186,13 @@ class CodeUsageIndicator extends PanelMenu.Button {
 
             // 'agent' mode merges across models — show the model count instead
             // of a single model name (which has no single value here).
-            const fullName = statsMode === 'agent'
+            const isAgentMode = statsMode === 'agent';
+            const fullName = isAgentMode
                 ? `${ms.modelCount || 0} ${_('个模型')}`
                 : (ms.displayName || ms.model);
             const name = _makeEllipsizedLabel({
                 text: fullName,
-                style_class: 'cu-model-name',
+                style_class: isAgentMode ? 'cu-model-name cu-model-count' : 'cu-model-name',
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
@@ -1304,7 +1379,11 @@ class CodeUsageIndicator extends PanelMenu.Button {
         // instead of touching already-destroyed St widgets.
         this._destroyed = true;
         ++this._refreshGeneration;
-        this._stopTimer();
+        // Stage 5: tear down FileMonitors + reconciliation timer + any pending
+        // dirty-scan debounce, and terminate the in-flight worker so a scan
+        // never outlives the extension.
+        this._teardownMonitorsAndReconcile();
+        if (this._dataSource) this._dataSource.destroy();
         if (this._reprocessDebounceId) {
             GLib.source_remove(this._reprocessDebounceId);
             this._reprocessDebounceId = 0;

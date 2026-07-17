@@ -12,9 +12,11 @@
 
 ## 支持的数据源
 
-当前支持 Claude Code、Codex、Gemini、Kimi、OpenClaw、pi-agent、Qwen、GitHub Copilot CLI、Amp、CodeBuff、OpenCode、Goose、Hermes、Kilo 等编码代理。
+当前支持 Claude Code、Codex、Gemini、Kimi、OpenClaw、pi-agent、Qwen、GitHub Copilot CLI、Amp、CodeBuff、OpenCode、Goose、Hermes、Kilo、ZCode 等编码代理。
 
-OpenCode、Goose、Hermes 和 Kilo 使用 SQLite 数据源，需要系统安装 `sqlite3` 命令行工具。
+OpenCode、Goose、Hermes、Kilo 和 ZCode 使用 SQLite 数据源，需要系统安装 `sqlite3` 命令行工具。ZCode 数据从 `~/.zcode/cli/db/db.sqlite` 读取。
+
+ZCode 某些版本会将已完成请求的 Token 写成 0。此时扩展会自动读取 `~/.zcode/cli/rollout/model-io-*.jsonl` 中的实际请求负载作为回退估算，并在面板中以 `≈` 标记；数据库恢复有效数值后会自动优先使用精确统计。
 
 ## 版本兼容
 

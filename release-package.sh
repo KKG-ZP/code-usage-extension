@@ -18,7 +18,7 @@ command -v zip >/dev/null 2>&1 || {
 }
 
 rm -rf "$DIST_DIR"
-mkdir -p "$STAGING_DIR/modules" "$STAGING_DIR/icons" "$STAGING_DIR/schemas"
+mkdir -p "$STAGING_DIR/modules" "$STAGING_DIR/worker" "$STAGING_DIR/icons" "$STAGING_DIR/schemas"
 
 cp extension.js "$STAGING_DIR/"
 cp prefs.js "$STAGING_DIR/"
@@ -29,6 +29,7 @@ cp LICENSE "$STAGING_DIR/"
 cp README_RELEASE.md "$STAGING_DIR/README.md"
 
 cp modules/*.js "$STAGING_DIR/modules/"
+cp worker/*.js "$STAGING_DIR/worker/"
 cp icons/* "$STAGING_DIR/icons/"
 cp schemas/org.gnome.shell.extensions.code-usage.gschema.xml "$STAGING_DIR/schemas/"
 

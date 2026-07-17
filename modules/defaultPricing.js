@@ -358,7 +358,7 @@ export const MODEL_PRICING_ALIASES = {
     'command-r-08-2024': 'command-r',
 };
 
-export const CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini', 'qwen']);
+export const CACHE_INCLUSIVE_APP_TYPES = new Set(['codex', 'gemini', 'qwen', 'zcode']);
 
 const PROVIDER_PREFIXES = [
     ['claude', 'Anthropic'],
@@ -410,6 +410,7 @@ export const SUPPORTED_AGENTS = [
     { id: 'kimi', name: 'Kimi' },
     { id: 'qwen', name: 'Qwen' },
     { id: 'copilot', name: 'GitHub Copilot CLI' },
+    { id: 'zcode', name: 'ZCode' },
 ];
 
 export const AGENT_DISPLAY_NAMES = {
@@ -428,6 +429,7 @@ export const AGENT_DISPLAY_NAMES = {
     kimi: 'Kimi',
     qwen: 'Qwen',
     copilot: 'Copilot CLI',
+    zcode: 'ZCode',
 };
 
 export const AGENT_BRAND_COLORS = {
@@ -446,6 +448,7 @@ export const AGENT_BRAND_COLORS = {
     kimi: '#22D3EE',
     qwen: '#4a94e3',
     copilot: '#8534F3',
+    zcode: '#2563EB',
 };
 
 export const AGENT_BRAND_TEXT_COLORS = {
@@ -468,4 +471,5 @@ export const AGENT_APP_TYPE_MAP = {
     kimi: 'kimi',
     qwen: 'qwen',
     copilot: 'copilot',
+    zcode: 'zcode',
 };

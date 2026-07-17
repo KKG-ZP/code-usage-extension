@@ -119,6 +119,28 @@ function _extractClaudeUsage(raw, costUSD) {
 
 const _codexSessionModels = new Map();
 
+/**
+ * Read/write the Codex per-file session model used by parseCodexLine.
+ * Exported so the worker can persist this state across incremental reads:
+ * an offset-based read starting mid-file would otherwise miss the
+ * `turn_context` line that seeded the model, making appended token_count
+ * records fall back to the generic 'codex' model id.
+ */
+export function getCodexSessionModel(filePath) {
+    return _codexSessionModels.get(filePath);
+}
+
+export function setCodexSessionModel(filePath, model) {
+    if (model) _codexSessionModels.set(filePath, model);
+    else _codexSessionModels.delete(filePath);
+}
+
+/** Clear all Codex session-model state. Used by the worker before a full
+ *  re-parse of a Codex file so stale models from a prior run don't leak. */
+export function clearCodexSessionModels() {
+    _codexSessionModels.clear();
+}
+
 export function parseCodexLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
@@ -534,46 +556,103 @@ function _kiroSessionIdFromPath(filePath) {
 }
 
 // ═══════════════════════════════════════
-// SQLite agents (OpenCode, Goose, Hermes, Kilo)
+// SQLite agents (OpenCode, Goose, Hermes, Kilo, ZCode)
 // ═══════════════════════════════════════
-export async function parseSQLiteAgent(agent, dbPath, config) {
-    try {
-        const sqlite3 = _findSqlite3();
-        if (!sqlite3) return [];
+//
+// parseSQLiteAgent accepts an optional watermark { lastRowId, lastTimestamp,
+// overlapMs } so the worker can query only newly-appended rows instead of
+// the whole table. Returns { entries, lastRowId, lastTimestamp, errorCode }
+// where errorCode is null on success or one of:
+//   DATABASE_LOCKED / QUERY_TIMEOUT / SCHEMA_MISMATCH / QUERY_FAILED
+// A legitimately empty result (no new rows) returns entries=[] with
+// errorCode=null — the caller must not conflate the two.
 
-        let sql;
+export async function parseSQLiteAgent(agent, dbPath, config, watermark) {
+    const sqlite3 = _findSqlite3();
+    if (!sqlite3) return { entries: [], lastRowId: 0, lastTimestamp: null, errorCode: 'SQLITE3_NOT_FOUND' };
 
-        if (agent === 'opencode' || agent === 'kilo') {
-            sql = "SELECT data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
-        } else if (agent === 'goose') {
-            // Column names per goose's documented CREATE TABLE sessions
-            // (block/goose session_manager.rs). The previous query used
-            // 'accumulated_output_tickets' (typo) and 'model_config_json'
-            // which caused a silent 'no such column' failure.
-            sql = 'SELECT id, model_config, provider_name, created_at, accumulated_input_tokens, accumulated_output_tokens, total_tokens FROM sessions';
-        } else if (agent === 'hermes') {
-            sql = 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions';
-        } else {
-            return [];
-        }
+    const wm = watermark;
+    const isIncremental = !!wm && wm.lastRowId != null;
+    const lastRowId = Number(wm?.lastRowId) || 0;
+    const lastTimestamp = wm?.lastTimestamp || null;
 
-        const rows = await _querySqliteRows(sqlite3, dbPath, sql);
-        const entries = [];
-        for (const row of rows) {
-            const entry = _parseSQLiteRow(agent, row);
-            if (entry) entries.push(entry);
-        }
-        return entries;
-    } catch (e) {
-        _debug(`parseSQLiteAgent failed ${agent} ${dbPath}: ${e.message}`);
-        return [];
+    let sql, params;
+    if (agent === 'opencode' || agent === 'kilo') {
+        // message is append-only; rowid is the implicit monotonic PK.
+        sql = isIncremental
+            ? "SELECT rowid, data FROM message WHERE json_extract(data, '$.role') = 'assistant' AND rowid > ?"
+            : "SELECT rowid, data FROM message WHERE json_extract(data, '$.role') = 'assistant'";
+        params = isIncremental ? [lastRowId] : [];
+    } else if (agent === 'goose') {
+        sql = isIncremental
+            ? 'SELECT id, model_config, provider_name, created_at, accumulated_input_tokens, accumulated_output_tokens, total_tokens FROM sessions WHERE id > ?'
+            : 'SELECT id, model_config, provider_name, created_at, accumulated_input_tokens, accumulated_output_tokens, total_tokens FROM sessions';
+        params = isIncremental ? [lastRowId] : [];
+    } else if (agent === 'hermes') {
+        sql = isIncremental
+            ? 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions WHERE id > ?'
+            : 'SELECT id, model, started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, actual_cost_usd FROM sessions';
+        params = isIncremental ? [lastRowId] : [];
+    } else if (agent === 'zcode') {
+        // model_usage rows are written with a terminal status (completed/error)
+        // in practice; status flips are rare. Use a pure rowid watermark so
+        // incremental reads are simple append-only (no overlap/upsert). The
+        // low-frequency reconciliation (stage 5) catches any missed flip.
+        sql = isIncremental
+            ? "SELECT rowid, started_at, model_id, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens FROM model_usage WHERE status = 'completed' AND rowid > ?"
+            : "SELECT rowid, started_at, model_id, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens FROM model_usage WHERE status = 'completed'";
+        params = isIncremental ? [lastRowId] : [];
+    } else {
+        return { entries: [], lastRowId: 0, lastTimestamp: null, errorCode: null };
     }
+
+    const qr = await _querySqliteRows(sqlite3, dbPath, sql, params);
+    if (qr.errorCode) {
+        return { entries: [], lastRowId, lastTimestamp, errorCode: qr.errorCode };
+    }
+    const entries = [];
+    let maxRowId = lastRowId;
+    let maxTimestamp = lastTimestamp;
+    for (const row of qr.rows) {
+        const entry = _parseSQLiteRow(agent, row);
+        if (entry) entries.push(entry);
+        const rowId = _rowIdForAgent(agent, row);
+        if (rowId != null && Number(rowId) > maxRowId) maxRowId = Number(rowId);
+        const ts = _rowTimestampForAgent(agent, row);
+        if (ts && (maxTimestamp == null || ts > maxTimestamp)) maxTimestamp = ts;
+    }
+    return { entries, lastRowId: maxRowId, lastTimestamp: maxTimestamp, errorCode: null };
 }
 
-function _querySqliteRows(sqlite3, dbPath, sql) {
+function _rowIdForAgent(agent, row) {
+    if (agent === 'opencode' || agent === 'kilo' || agent === 'zcode') return row.rowid;
+    if (agent === 'goose' || agent === 'hermes') return row.id;
+    return null;
+}
+
+function _rowTimestampForAgent(agent, row) {
+    if (agent === 'zcode') return row.started_at;
+    return null; // opencode/kilo/goose/hermes track rowid, not timestamp
+}
+
+function _querySqliteRows(sqlite3, dbPath, sql, params) {
     return new Promise((resolve) => {
         let settled = false;
         let timeoutId = 0;
+        // Bind params into the SQL string. Params are from our own
+        // file-state (numbers / ISO timestamps), not user input, but we
+        // still escape single quotes defensively.
+        let boundSql = sql;
+        if (params) {
+            let i = 0;
+            boundSql = sql.replace(/\?/g, () => {
+                const p = params[i++];
+                if (p == null) return 'NULL';
+                if (typeof p === 'number') return String(p);
+                // string: wrap in single quotes, escape embedded quotes
+                return "'" + String(p).replace(/'/g, "''") + "'";
+            });
+        }
 
         const finish = (value) => {
             if (settled) return;
@@ -587,47 +666,63 @@ function _querySqliteRows(sqlite3, dbPath, sql) {
 
         let subprocess;
         try {
-            const argv = [sqlite3, '-json', dbPath, sql];
+            const argv = [sqlite3, '-json', dbPath, boundSql];
             subprocess = Gio.Subprocess.new(
                 argv,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
         } catch (e) {
             _debug(`sqlite3 spawn failed ${dbPath}: ${e.message}`);
-            finish([]);
+            finish({ rows: [], errorCode: 'QUERY_FAILED' });
             return;
         }
 
-        // Guard against a hung/corrupted database: force-kill the process and
-        // resolve with an empty result so the caller doesn't wait forever.
         timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, SQLITE_TIMEOUT_MS, () => {
             timeoutId = 0;
             try { subprocess.force_exit(); } catch (_e) { /* ignore */ }
             _debug(`sqlite3 timed out after ${SQLITE_TIMEOUT_MS}ms ${dbPath}`);
-            finish([]);
+            finish({ rows: [], errorCode: 'QUERY_TIMEOUT' });
             return GLib.SOURCE_REMOVE;
         });
 
         subprocess.communicate_utf8_async(null, null, (proc, result) => {
             try {
                 const [ok, stdout, stderr] = proc.communicate_utf8_finish(result);
-                if (!ok || !stdout) {
-                    if (stderr && stderr.trim()) {
-                        _debug(`sqlite3 stderr ${dbPath}: ${stderr.trim()}`);
+                const errText = (stderr || '').trim();
+                // Classify errors from stderr before treating empty stdout
+                // as "no rows". sqlite3 prints "Error: database is locked"
+                // or "Error: no such column: ..." to stderr and exits
+                // non-zero; a legitimate empty result prints "[]\n" to
+                // stdout with empty stderr.
+                if (errText) {
+                    const lower = errText.toLowerCase();
+                    if (lower.includes('database is locked') || lower.includes('database table is locked')) {
+                        finish({ rows: [], errorCode: 'DATABASE_LOCKED' });
+                        return;
                     }
-                    finish([]);
+                    if (lower.includes('no such column') || lower.includes('no such table')) {
+                        _debug(`sqlite3 schema error ${dbPath}: ${errText}`);
+                        finish({ rows: [], errorCode: 'SCHEMA_MISMATCH' });
+                        return;
+                    }
+                    _debug(`sqlite3 stderr ${dbPath}: ${errText}`);
+                    finish({ rows: [], errorCode: 'QUERY_FAILED' });
+                    return;
+                }
+                if (!ok || !stdout) {
+                    finish({ rows: [], errorCode: null });
                     return;
                 }
                 const parsed = JSON.parse(stdout.trim());
                 if (!Array.isArray(parsed)) {
                     _debug(`sqlite3 returned non-array ${dbPath}: ${typeof parsed}`);
-                    finish([]);
+                    finish({ rows: [], errorCode: 'QUERY_FAILED' });
                     return;
                 }
-                finish(parsed);
+                finish({ rows: parsed, errorCode: null });
             } catch (e) {
                 _debug(`sqlite3 result parse failed ${dbPath}: ${e.message}`);
-                finish([]);
+                finish({ rows: [], errorCode: 'QUERY_FAILED' });
             }
         });
     });
@@ -656,8 +751,12 @@ function _parseSQLiteRow(agent, row) {
     if (agent === 'goose') {
         let model = 'goose';
         try {
-            const config = typeof row.model_config_json === 'string'
-                ? JSON.parse(row.model_config_json) : row.model_config_json;
+            // The goose sessions table column is `model_config` (not
+            // `model_config_json` — the SQL SELECTs `model_config` at the
+            // query layer). Reading the wrong name left model stuck at the
+            // generic 'goose' fallback for every row.
+            const config = typeof row.model_config === 'string'
+                ? JSON.parse(row.model_config) : row.model_config;
             model = config?.model_name || model;
         } catch { /* use default */ }
 
@@ -684,7 +783,72 @@ function _parseSQLiteRow(agent, row) {
         };
     }
 
+    if (agent === 'zcode') {
+        const hasTokens = (row.input_tokens || 0) > 0 ||
+            (row.output_tokens || 0) > 0 ||
+            (row.cache_creation_input_tokens || 0) > 0 ||
+            (row.cache_read_input_tokens || 0) > 0;
+        return {
+            date: _extractDate(row.started_at),
+            model: row.model_id || 'zcode',
+            inputTokens: row.input_tokens || 0,
+            outputTokens: row.output_tokens || 0,
+            cacheCreationTokens: row.cache_creation_input_tokens || 0,
+            cacheReadTokens: row.cache_read_input_tokens || 0,
+            costUSD: null,
+            _usageSource: hasTokens ? 'database' : 'database-zero',
+        };
+    }
+
     return null;
+}
+
+// ZCode 3.x can complete model requests while persisting zero/empty usage in
+// model_usage.  Its model-io rollout is the next-best local source: it keeps
+// the exact outbound messages/tool schema and the observable response, but
+// not the provider's token counts.  Estimate those payloads conservatively
+// and mark the entry so callers never mistake it for billing-grade data.
+export function parseZCodeRolloutLine(line) {
+    try {
+        const raw = JSON.parse(line);
+        if (raw.type !== 'model_io' || !raw.requestId) return null;
+
+        const request = raw.request || {};
+        const response = raw.response || {};
+        const inputPayload = {
+            ...(request.body && typeof request.body === 'object' ? request.body : {}),
+            messages: Array.isArray(request.messages) ? request.messages : [],
+        };
+        const outputPayload = {
+            text: typeof response.text === 'string' ? response.text : '',
+            toolCalls: Array.isArray(response.toolCalls) ? response.toolCalls : [],
+        };
+
+        return {
+            date: _extractDate(raw.completedAt || raw.startedAt),
+            model: raw.model?.modelId || response.modelId || 'zcode',
+            inputTokens: _estimateZCodeTokens(inputPayload),
+            outputTokens: _estimateZCodeTokens(outputPayload),
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+            costUSD: null,
+            _dedupeKey: `zcode-rollout:${raw.requestId}`,
+            _usageSource: 'rollout-estimate',
+        };
+    } catch {
+        return null;
+    }
+}
+
+function _estimateZCodeTokens(value) {
+    const text = JSON.stringify(value);
+    if (!text || text === '{}' || text === '[]') return 0;
+    // GLM's exact chat template/tokenizer is not shipped with ZCode.  Four
+    // UTF-8 bytes per token is a deliberately simple, reproducible estimate
+    // for the observed mixed source-code/English/Chinese payloads.  The UI
+    // receives the source marker above so this can remain distinguishable
+    // from exact provider/database usage.
+    return Math.ceil(new TextEncoder().encode(text).length / 4);
 }
 
 // ═══════════════════════════════════════

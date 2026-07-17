@@ -617,11 +617,11 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
         page.add(historyGroup);
 
         const syncHistoryRow = new Adw.ActionRow({
-            title: _('重新同步历史'),
-            subtitle: _('重新扫描已启用工具的历史日志并补充归档'),
+            title: _('增量同步历史'),
+            subtitle: _('扫描已启用工具的新增或变化日志并补充归档'),
         });
         const syncHistoryButton = new Gtk.Button({
-            label: _('开始同步'),
+            label: _('立即同步'),
             valign: Gtk.Align.CENTER,
         });
         syncHistoryButton.connect('clicked', () => {

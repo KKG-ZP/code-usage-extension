@@ -9,7 +9,8 @@ import Gio from 'gi://Gio';
 
 const TEXT_DECODER = new TextDecoder('utf-8');
 const TEXT_ENCODER = new TextEncoder('utf-8');
-const ARCHIVE_VERSION = 2;
+const SPLIT_ARCHIVE_VERSION = 2;
+const ARCHIVE_VERSION = 3;
 
 export class DailyArchive {
     constructor(settings, processor) {
@@ -24,6 +25,7 @@ export class DailyArchive {
             initializedAgents: [],
             initializedAt: null,
             lastHistorySyncAt: null,
+            fullHistoryImportVersion: 0,
         };
         this._load();
     }
@@ -45,13 +47,13 @@ export class DailyArchive {
 
             // v1 used `days` for both historical and current snapshots. Keep
             // the records, then move today's record into activeDay on first use.
-            const history = parsed.version >= ARCHIVE_VERSION
+            const history = parsed.version >= SPLIT_ARCHIVE_VERSION
                 ? (parsed.historyDays || {})
                 : (parsed.days || {});
             for (const [date, record] of Object.entries(history)) {
                 if (record && typeof record === 'object') this._historyDays.set(date, record);
             }
-            if (parsed.version >= ARCHIVE_VERSION && parsed.activeDay) {
+            if (parsed.version >= SPLIT_ARCHIVE_VERSION && parsed.activeDay) {
                 this._activeDay = parsed.activeDay;
             }
             if (parsed.metadata && typeof parsed.metadata === 'object') {
@@ -66,7 +68,7 @@ export class DailyArchive {
 
     _persist() {
         try {
-            GLib.mkdir_with_parents(GLib.get_dirname(this._path), 0o755);
+            GLib.mkdir_with_parents(GLib.path_get_dirname(this._path), 0o755);
             const payload = {
                 version: ARCHIVE_VERSION,
                 historyDays: Object.fromEntries(this._historyDays),
@@ -92,6 +94,7 @@ export class DailyArchive {
             this._metadata.initialized = true;
             this._metadata.initializedAgents = [...selectedAgents];
             this._metadata.initializedAt = now.toISOString();
+            this._metadata.fullHistoryImportVersion = ARCHIVE_VERSION;
             changed = true;
         }
         if (changed) this._persist();
@@ -135,6 +138,45 @@ export class DailyArchive {
         this._metadata.initialized = true;
         this._persist();
         return changed;
+    }
+
+    /**
+     * Repair/import a complete cold-scan snapshot without deleting existing
+     * archive rows. Version 3 exists specifically to recover v2 archives that
+     * could be initialized from a partially published async file cache.
+     */
+    completeHistoryImport(entries, selectedAgents, now = new Date()) {
+        const today = _formatLocalDate(now);
+        let changed = this._advanceDay(today);
+        changed = this._mergeHistoricalEntries(entries, today) || changed;
+        const initializedAgents = Array.isArray(this._metadata.initializedAgents)
+            ? this._metadata.initializedAgents
+            : [];
+        this._metadata.initializedAgents = [...new Set([
+            ...initializedAgents,
+            ...selectedAgents,
+        ])];
+        this._metadata.initialized = true;
+        this._metadata.initializedAt ??= now.toISOString();
+        this._metadata.fullHistoryImportVersion = ARCHIVE_VERSION;
+        this._metadata.lastHistorySyncAt = now.toISOString();
+        this._persist();
+        return changed;
+    }
+
+    needsFullHistoryRepair() {
+        return (Number(this._metadata.fullHistoryImportVersion) || 0) < ARCHIVE_VERSION;
+    }
+
+    /** Return selected agents whose historical records have never been imported. */
+    getUninitializedAgents(selectedAgents) {
+        if (!this._metadata.initialized) return [];
+        const initialized = new Set(
+            Array.isArray(this._metadata.initializedAgents)
+                ? this._metadata.initializedAgents
+                : []
+        );
+        return selectedAgents.filter(agent => !initialized.has(agent));
     }
 
     /**

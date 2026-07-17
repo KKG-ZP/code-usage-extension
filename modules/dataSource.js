@@ -1,266 +1,116 @@
-// Agent source registry + thin DataSource facade.
+// Thin DataSource facade: spawns the standalone usage-worker subprocess and
+// loads the compact snapshot it writes.
 //
-// AGENT_CONFIGS describes where each supported coding agent stores its log
-// data and how to parse a single record. The actual scanning, caching, and
-// incremental parsing live in FileCacheManager — DataSource only forwards.
+// AGENT_CONFIGS (where each agent stores its logs and how to parse a record)
+// lives in agentConfigs.js, shared with the worker. The Shell never parses
+// raw logs itself — DataSource just (a) launches the worker with the
+// current settings as CLI args, (b) waits for it to finish, (c) reloads the
+// snapshot via FileCacheManager.
 //
 // Supported: Claude Code, Codex, Gemini, Kimi, OpenClaw, PI, Qwen, Copilot,
 // Amp, CodeBuff, Kiro CLI, plus SQLite-backed agents (OpenCode, Goose,
-// Hermes, Kilo)
-// via the optional sqlite3 CLI.
+// Hermes, Kilo, ZCode) via the optional sqlite3 CLI.
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import { parseClaudeEntry } from './parsers.js';
-import {
-    parseCodexLine, parseGeminiFile, parseKimiLine,
-    parseOpenClawLine, parsePILine, parseQwenLine,
-    parseCopilotLine, parseAmpFile, parseCodeBuffFile,
-    parseKiroCliSessionFile,
-} from './parsers.js';
+
 import { FileCacheManager } from './cacheManager.js';
-
-function _expandHome(path) {
-    if (!path) return path;
-    if (path === '~') return GLib.get_home_dir();
-    if (path.startsWith('~/')) {
-        return GLib.build_filenamev([GLib.get_home_dir(), path.slice(2)]);
-    }
-    return path;
-}
-
-const AGENT_CONFIGS = {
-    claude: {
-        name: 'Claude Code',
-        appType: 'claude',
-        dirs: () => {
-            const configDir = GLib.getenv('CLAUDE_CONFIG_DIR');
-            const dirs = [];
-            if (configDir) {
-                for (const d of configDir.split(',')) {
-                    dirs.push(GLib.build_filenamev([_expandHome(d.trim()), 'projects']));
-                }
-            }
-            const xdg = _expandHome(GLib.getenv('XDG_CONFIG_HOME')) ||
-                GLib.build_filenamev([GLib.get_home_dir(), '.config']);
-            dirs.push(GLib.build_filenamev([xdg, 'claude', 'projects']));
-            dirs.push(GLib.build_filenamev([GLib.get_home_dir(), '.claude', 'projects']));
-            return dirs;
-        },
-        pattern: /\.jsonl$/,
-        parse: parseClaudeEntry,
-        recursive: true,
-    },
-    codex: {
-        name: 'Codex',
-        appType: 'codex',
-        dirs: () => {
-            const home = _expandHome(GLib.getenv('CODEX_HOME')) || GLib.build_filenamev([GLib.get_home_dir(), '.codex']);
-            return [
-                GLib.build_filenamev([home, 'sessions']),
-                GLib.build_filenamev([home, 'archived_sessions']),
-            ];
-        },
-        pattern: /\.jsonl$/,
-        parse: parseCodexLine,
-        recursive: true,
-    },
-    gemini: {
-        name: 'Gemini CLI',
-        appType: 'gemini',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('GEMINI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.gemini', 'tmp']);
-            return [d];
-        },
-        pattern: /\.(json|jsonl)$/,
-        parse: parseGeminiFile,
-        recursive: true,
-    },
-    kimi: {
-        name: 'Kimi',
-        appType: 'kimi',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('KIMI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.kimi']);
-            return [d];
-        },
-        pattern: /wire\.jsonl$/,
-        parse: parseKimiLine,
-        recursive: true,
-    },
-    openclaw: {
-        name: 'OpenClaw',
-        appType: 'openclaw',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('OPENCLAW_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.openclaw']);
-            return [d];
-        },
-        pattern: /\.jsonl$/,
-        parse: parseOpenClawLine,
-        recursive: true,
-    },
-    pi: {
-        name: 'pi-agent',
-        appType: 'pi',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('PI_AGENT_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.pi', 'agent', 'sessions']);
-            return [d];
-        },
-        pattern: /\.jsonl$/,
-        parse: parsePILine,
-        recursive: true,
-    },
-    qwen: {
-        name: 'Qwen',
-        appType: 'qwen',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('QWEN_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.qwen']);
-            return [d];
-        },
-        pattern: /\.jsonl$/,
-        parse: parseQwenLine,
-        recursive: true,
-    },
-    copilot: {
-        name: 'GitHub Copilot CLI',
-        appType: 'copilot',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('COPILOT_OTEL_FILE_EXPORTER_PATH'));
-            if (d) return [d];
-            const home = GLib.get_home_dir();
-            return [
-                GLib.build_filenamev([home, '.copilot', 'session-state']),
-                GLib.build_filenamev([home, '.copilot', 'otel']),
-            ];
-        },
-        pattern: /\.jsonl$/,
-        parse: parseCopilotLine,
-        recursive: true,
-    },
-    amp: {
-        name: 'Amp',
-        appType: 'amp',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('AMP_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'amp']);
-            return [GLib.build_filenamev([d, 'threads'])];
-        },
-        pattern: /\.json$/,
-        parse: parseAmpFile,
-        recursive: false,
-    },
-    codebuff: {
-        name: 'Codebuff',
-        appType: 'codebuff',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('CODEBUFF_DATA_DIR'));
-            const dirs = [];
-            if (d) {
-                dirs.push(GLib.build_filenamev([d, 'projects']));
-            }
-            dirs.push(GLib.build_filenamev([GLib.get_home_dir(), '.config', 'manicode', 'projects']));
-            return dirs;
-        },
-        pattern: /^chat-messages\.json$/,
-        parse: parseCodeBuffFile,
-        recursive: true,
-    },
-    kiro: {
-        name: 'Kiro CLI',
-        appType: 'kiro',
-        dirs: () => {
-            const sessionsDir = GLib.getenv('KIRO_CLI_SESSIONS_DIR');
-            if (sessionsDir) return [_expandHome(sessionsDir)];
-
-            const kiroHome = _expandHome(GLib.getenv('KIRO_HOME')) ||
-                GLib.build_filenamev([GLib.get_home_dir(), '.kiro']);
-            return [GLib.build_filenamev([kiroHome, 'sessions', 'cli'])];
-        },
-        pattern: /\.json$/,
-        parse: parseKiroCliSessionFile,
-        recursive: false,
-    },
-    opencode: {
-        name: 'OpenCode',
-        appType: 'opencode',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('OPENCODE_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'opencode']);
-            return [d];
-        },
-        pattern: null,
-        sqlite: true,
-        dbFiles: ['opencode.db', 'opencode-stable.db'],
-    },
-    goose: {
-        name: 'Goose',
-        appType: 'goose',
-        dirs: () => {
-            const root = _expandHome(GLib.getenv('GOOSE_PATH_ROOT')) || GLib.get_home_dir();
-            const dirs = [];
-            dirs.push(GLib.build_filenamev([root, '.local', 'share', 'goose', 'sessions']));
-            dirs.push(GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'Block', 'goose', 'sessions']));
-            return dirs;
-        },
-        pattern: null,
-        sqlite: true,
-        dbFiles: ['sessions.db'],
-    },
-    hermes: {
-        name: 'Hermes',
-        appType: 'hermes',
-        dirs: () => {
-            const base = _expandHome(GLib.getenv('HERMES_HOME')) || GLib.build_filenamev([GLib.get_home_dir(), '.hermes']);
-            const dirs = [base];
-            const profilesDir = GLib.build_filenamev([base, 'profiles']);
-            const dir = Gio.File.new_for_path(profilesDir);
-            if (dir.query_exists(null)) {
-                try {
-                    const enumerator = dir.enumerate_children(
-                        'standard::name,standard::type',
-                        Gio.FileQueryInfoFlags.NONE, null
-                    );
-                    let info;
-                    try {
-                        while ((info = enumerator.next_file(null)) !== null) {
-                            if (info.get_file_type() === Gio.FileType.DIRECTORY) {
-                                dirs.push(GLib.build_filenamev([profilesDir, info.get_name()]));
-                            }
-                        }
-                    } finally {
-                        try { enumerator.close(null); } catch (_e) { /* ignore */ }
-                    }
-                } catch { /* ignore */ }
-            }
-            return dirs;
-        },
-        pattern: null,
-        sqlite: true,
-        dbFiles: ['state.db'],
-    },
-    kilo: {
-        name: 'Kilo',
-        appType: 'kilo',
-        dirs: () => {
-            const d = _expandHome(GLib.getenv('KILO_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'kilo']);
-            return [d];
-        },
-        pattern: null,
-        sqlite: true,
-        dbFiles: ['kilo.db'],
-    },
-};
+import { AGENT_CONFIGS } from './agentConfigs.js';
+import { findGjs } from './gjsLocator.js';
 
 export class DataSource {
-    constructor(settings) {
+    constructor(settings, extensionPath) {
         this._settings = settings;
+        this._extensionPath = extensionPath;
         this._cache = new FileCacheManager(settings, AGENT_CONFIGS);
+        this._workerProc = null;
+        this._workerRunning = false;
+        // Serialise concurrent scanAndDiff calls so a timer tick + a
+        // settings-triggered rescan don't race the snapshot reload.
+        this._scanChain = Promise.resolve();
     }
 
     /**
-     * Refresh the underlying file cache for the given agents. Returns
-     * { changed, lastActivityAt } so callers can drive an active/idle
-     * timer state machine without re-reading file metadata themselves.
+     * Launch the worker subprocess (if not already running) to refresh the
+     * snapshot, then reload it. Returns { changed, lastActivityAt }.
+     * The worker runs out-of-process so heavy parsing never blocks the
+     * Shell main loop; we only await its completion + the snapshot reload.
      */
     async scanAndDiff(agents) {
-        return this._cache.scanAndDiff(agents);
+        const run = () => this._scanAndDiffImpl(agents);
+        this._scanChain = this._scanChain.then(run, run);
+        return this._scanChain;
+    }
+
+    async _scanAndDiffImpl(agents) {
+        if (agents.length === 0) {
+            this._cache.clear();
+            return { changed: false, lastActivityAt: 0 };
+        }
+        await this._runWorker(agents);
+        const changed = this._cache._maybeReloadSnapshot();
+        return { changed, lastActivityAt: this._cache._lastActivityAt };
+    }
+
+    /**
+     * Spawn the worker with current pricing/alias/currency settings as CLI
+     * args (the worker is a separate process and can't read GSettings).
+     * Resolves when the worker exits; if a worker is already running, the
+     * call awaits the same in-flight run rather than spawning a second one.
+     * On spawn failure (gjs not found) the snapshot is left as-is.
+     */
+    _runWorker(agents) {
+        if (this._workerRunning) {
+            return this._workerRunning;
+        }
+        const gjs = findGjs();
+        if (!gjs) {
+            console.error('Code Usage: gjs interpreter not found; cannot run usage worker');
+            return Promise.resolve();
+        }
+        const workerScript = GLib.build_filenamev([
+            this._extensionPath, 'worker', 'usage-worker.js']);
+        const argv = [
+            gjs, '-m', workerScript,
+            '--extension-path', this._extensionPath,
+            '--agents', agents.join(','),
+            '--cost-multiplier', String(this._settings.get_double('cost-multiplier')),
+            '--exchange-rate', String(this._settings.get_double('cny-exchange-rate')),
+            '--price-overrides', this._settings.get_string('price-overrides'),
+            '--model-aliases', this._settings.get_string('model-aliases'),
+        ];
+        if (this._settings.get_boolean('debug-mode')) argv.push('--debug');
+
+        const promise = new Promise((resolve) => {
+            let proc;
+            try {
+                proc = Gio.Subprocess.new(argv,
+                    Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            } catch (e) {
+                console.error(`Code Usage: worker spawn failed: ${e.message}`);
+                resolve();
+                return;
+            }
+            this._workerProc = proc;
+            // communicate so the child's stdout/stderr pipes don't fill and
+            // block it; we ignore the content (the snapshot is the source of
+            // truth, not stdout).
+            proc.communicate_utf8_async(null, null, (p, r) => {
+                try {
+                    const [ok, _stdout, stderr] = p.communicate_utf8_finish(r);
+                    if (!ok && stderr && stderr.trim()) {
+                        console.error(`Code Usage: worker stderr: ${stderr.trim()}`);
+                    }
+                } catch (e) {
+                    console.error(`Code Usage: worker wait failed: ${e.message}`);
+                }
+                this._workerProc = null;
+                resolve();
+            });
+        });
+        this._workerRunning = promise;
+        promise.finally(() => { if (this._workerRunning === promise) this._workerRunning = null; });
+        return promise;
     }
 
     /**
@@ -272,14 +122,102 @@ export class DataSource {
         return this._cache.getMergedEntries();
     }
 
-    /** Keep the live cache bounded to the current local day after archiving. */
-    retainEntriesForDate(date) {
-        this._cache.retainEntriesForDate(date);
+    /** Stage 4: raw aggregated dailyUsage rows from the snapshot. */
+    getDailyUsage() {
+        return this._cache.getDailyUsage();
     }
 
-    /** Drop all cached state. Used when the agent set must be rescanned cold. */
+    /** No-op for API compatibility (snapshot is already bounded). */
+    retainEntriesForDate(_date) {
+        this._cache.retainEntriesForDate(_date);
+    }
+
+    /** Drop all cached state. */
     clearCache() {
         this._cache.clear();
+    }
+
+    /** Expose the last-loaded snapshot for health/status UI. */
+    getSnapshot() {
+        return this._cache.getSnapshot();
+    }
+
+    /**
+     * Stage 5: watch the selected agents' log directories so a file change
+     * can trigger an immediate incremental scan instead of waiting for the
+     * next poll tick. `onDirty(dirtyAgents)` is called with the set of agent
+     * ids whose directories saw a change; the caller debounces and calls
+     * scanAndDiff(dirtyAgents). Monitors are re-created when the agent set
+     * changes (call setupFileMonitors again).
+     */
+    setupFileMonitors(agents, onDirty) {
+        this.destroyFileMonitors();
+        if (!onDirty || agents.length === 0) return;
+        this._fileMonitors = [];
+        this._monitorDirtyAgents = new Set();
+        this._monitorOnDirty = onDirty;
+        const watchedDirs = new Set();
+        for (const agent of agents) {
+            const config = AGENT_CONFIGS[agent];
+            if (!config) continue;
+            const dirs = config.dirs();
+            for (const dirPath of dirs) {
+                // Dedupe: multiple agents may share a parent dir; one monitor
+                // per directory is enough, but we track which agents it covers.
+                if (watchedDirs.has(dirPath)) continue;
+                watchedDirs.add(dirPath);
+                const dir = Gio.File.new_for_path(dirPath);
+                if (!dir.query_exists(null)) continue;
+                try {
+                    const monitor = dir.monitor_directory(
+                        Gio.FileMonitorFlags.WATCH_MOVES, null);
+                    monitor.set_rate_limit(2000);
+                    const handlerId = monitor.connect('changed', (m, file, other, eventType) => {
+                        // CHANGED/CREATED/MOVED/DELETED all indicate log activity.
+                        if (eventType === Gio.FileMonitorEvent.CHANGED ||
+                            eventType === Gio.FileMonitorEvent.CREATED ||
+                            eventType === Gio.FileMonitorEvent.MOVED ||
+                            eventType === Gio.FileMonitorEvent.DELETED ||
+                            eventType === Gio.FileMonitorEvent.MOVED_IN ||
+                            eventType === Gio.FileMonitorEvent.MOVED_OUT) {
+                            this._monitorDirtyAgents.add(agent);
+                            this._monitorOnDirty([...this._monitorDirtyAgents]);
+                        }
+                    });
+                    this._fileMonitors.push({ monitor, handlerId });
+                } catch (_e) {
+                    // Some dirs may not be monitorable; the poll reconciliation
+                    // timer is the fallback.
+                }
+            }
+        }
+    }
+
+    destroyFileMonitors() {
+        if (!this._fileMonitors) return;
+        for (const { monitor, handlerId } of this._fileMonitors) {
+            try { monitor.disconnect(handlerId); } catch (_e) {}
+            try { monitor.cancel(); } catch (_e) {}
+        }
+        this._fileMonitors = null;
+        this._monitorDirtyAgents = null;
+        this._monitorOnDirty = null;
+    }
+
+    /**
+     * Force-terminate any in-flight worker. Called on disable/destroy so
+     * no scan outlives the extension.
+     */
+    cancelWorker() {
+        if (this._workerProc) {
+            try { this._workerProc.force_exit(); } catch (_e) { /* ignore */ }
+        }
+    }
+
+    /** Clean up monitors + worker on destroy. */
+    destroy() {
+        this.destroyFileMonitors();
+        this.cancelWorker();
     }
 }
 

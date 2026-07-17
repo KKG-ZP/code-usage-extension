@@ -11,6 +11,7 @@ schemas/gschemas.compiled
 .codex/
 .qoder/
 .zread/
+.qwen/
 
 # OS
 .DS_Store

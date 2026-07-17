@@ -1,6 +1,10 @@
 import { CostCalculator, formatCost, formatTokens, calculateTokenAccountingForApp } from './costCalculator.js';
-import { getPricingForModel } from './pricingResolver.js';
 import { AGENT_APP_TYPE_MAP, AGENT_DISPLAY_NAMES } from './defaultPricing.js';
+import {
+    computeEntryMetrics,
+    entryRequestCount as _entryRequestCount,
+    parseAliasMap as _parseAliasMap,
+} from './entryMetrics.js';
 
 const HEATMAP_WEEK_COUNT = 16;
 
@@ -201,62 +205,250 @@ export class DataProcessor {
         };
     }
 
-    _entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap }) {
-        const agent = entry._agent || 'claude';
-        const appType = AGENT_APP_TYPE_MAP[agent] || agent;
-        // Apply the user's alias→main-model map for STATISTICAL GROUPING.
-        // canonicalModel drives the compositeKey so aliases merge into the
-        // main model's card; pricing is also resolved on the canonical id so
-        // displayName comes from the main model. entry.model itself is NOT
-        // mutated — cacheManager.getMergedEntries returns cached references,
-        // and rewriting them would pollute the read-only cache.
-        const canonicalModel = (aliasMap && aliasMap[entry.model]) || entry.model;
-        const pricing = getPricingForModel(canonicalModel, null, overridesJson);
-        const usage = {
-            inputTokens: entry.inputTokens || 0,
-            outputTokens: entry.outputTokens || 0,
-            cacheReadTokens: entry.cacheReadTokens || 0,
-            cacheCreationTokens: entry.cacheCreationTokens || 0,
-        };
-        const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
-        const hasUsageTokens = usage.inputTokens > 0
-            || usage.outputTokens > 0
-            || usage.cacheReadTokens > 0
-            || usage.cacheCreationTokens > 0;
+    _entryMetrics(entry, ctx) {
+        return computeEntryMetrics(entry, ctx);
+    }
 
-        let entryCost = 0;
-        if (entry._finalCostCNY != null) {
-            // Re-injected from the daily archive: a precomputed final CNY
-            // cost captured at snapshot time. Bypass the USD→CNY conversion
-            // AND the cost multiplier so archived costs don't silently
-            // re-value when the user later tweaks cny-exchange-rate /
-            // cost-multiplier. Archived cost is shown as-recorded.
-            const rawCost = Number(entry._finalCostCNY);
-            if (Number.isFinite(rawCost) && rawCost > 0) {
-                entryCost = rawCost;
-            }
-        } else if (entry.costUSD != null) {
-            // Guard against string/NaN costUSD from parsers: a single
-            // non-numeric value would poison every running total via
-            // NaN propagation. Coerce and validate before accumulating.
-            const rawCost = Number(entry.costUSD);
-            if (Number.isFinite(rawCost) && rawCost > 0) {
-                entryCost = rawCost * exchangeRate * costMultiplier;
-            }
-        } else if (pricing && hasUsageTokens) {
-            const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
-            entryCost = cost.totalCost;
+    /**
+     * Stage 4: consume the snapshot's pre-aggregated dailyUsage rows
+     * directly, bypassing the per-entry cost/token loop in processEntries.
+     * The rows are already aggregated by (date, agent, raw_model) with a
+     * locked-in CNY cost, so we only apply: date-range filter, stats-mode
+     * grouping, and alias-based display merging. Output shape matches
+     * processEntries so the panel/UI code is unchanged.
+     */
+    processAggregatedRows(rows) {
+        const tokenFormat = this._settings.get_string('token-display-format');
+        const today = _formatLocalDate(new Date());
+        const heatmapWeeks = this._getHeatmapFromRows(rows || [], tokenFormat, today);
+        const currency = this._settings.get_string('cost-currency');
+        const exchangeRate = this._settings.get_double('cny-exchange-rate');
+        const aliasMap = _parseAliasMap(this._settings.get_string('model-aliases'));
+
+        if (!rows || rows.length === 0) {
+            return this._emptyResult(heatmapWeeks);
         }
 
+        const sortOrder = this._settings.get_string('sort-order');
+        const modelSortBy = this._settings.get_string('model-sort-by');
+        const statsMode = this._settings.get_string('stats-mode');
+        const dateRange = this._settings.get_string('date-range-preset');
+        const customSince = this._settings.get_string('custom-date-since');
+        const customUntil = this._settings.get_string('custom-date-until');
+        const dateFilter = this._buildDateFilter(dateRange, customSince, customUntil);
+
+        let totalRequests = 0;
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        let totalCacheCreationTokens = 0;
+        let totalCacheReadTokens = 0;
+        let totalUsageTokens = 0;
+        let totalCacheHitDenominator = 0;
+        let totalCost = 0;
+        let hasEstimatedUsage = false;
+        const modelStats = {};
+        const dailyMap = {};
+
+        for (const row of rows) {
+            if (!row.date || !dateFilter(row.date)) continue;
+            const agent = row.agent || 'claude';
+            const appType = AGENT_APP_TYPE_MAP[agent] || agent;
+            const usage = {
+                inputTokens: row.inputTokens || 0,
+                outputTokens: row.outputTokens || 0,
+                cacheReadTokens: row.cacheReadTokens || 0,
+                cacheCreationTokens: row.cacheCreationTokens || 0,
+            };
+            const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
+            const requests = Number(row.requestCount) || 1;
+            // cost is already locked-in CNY from the worker; use as-is.
+            const rowCost = Number(row.cost) || 0;
+            const isEstimated = row.estimated === true || row.usageSource === 'rollout-estimate';
+            hasEstimatedUsage ||= isEstimated;
+
+            totalRequests += requests;
+            totalInputTokens += usage.inputTokens;
+            totalOutputTokens += usage.outputTokens;
+            totalCacheCreationTokens += usage.cacheCreationTokens;
+            totalCacheReadTokens += usage.cacheReadTokens;
+            totalUsageTokens += tokenAccounting.totalTokens;
+            totalCacheHitDenominator += tokenAccounting.cacheHitDenominator;
+            totalCost += rowCost;
+
+            // Alias applies at the display/grouping layer only; raw_model is
+            // the stored identity.
+            const canonicalModel = (aliasMap && aliasMap[row.raw_model]) || row.raw_model || 'unknown';
+            const compositeKey = statsMode === 'model' ? canonicalModel
+                : statsMode === 'agent' ? agent
+                : `${agent}:${canonicalModel}`;
+
+            if (!modelStats[compositeKey]) {
+                const base = {
+                    inputTokens: 0, outputTokens: 0,
+                    cacheReadTokens: 0, cacheCreationTokens: 0,
+                    totalCost: 0, totalTokens: 0,
+                    cacheHitDenominator: 0, requestCount: 0,
+                    estimated: false,
+                };
+                if (statsMode === 'agent') {
+                    base.agent = agent;
+                    base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
+                    base.modelSet = new Set();
+                } else if (statsMode === 'model') {
+                    base.model = canonicalModel;
+                    base.displayName = canonicalModel;
+                } else {
+                    base.model = canonicalModel;
+                    base.displayName = canonicalModel;
+                    base.agent = agent;
+                    base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
+                }
+                modelStats[compositeKey] = base;
+            }
+            const m = modelStats[compositeKey];
+            m.inputTokens += usage.inputTokens;
+            m.outputTokens += usage.outputTokens;
+            m.cacheReadTokens += usage.cacheReadTokens;
+            m.cacheCreationTokens += usage.cacheCreationTokens;
+            m.totalCost += rowCost;
+            m.totalTokens += tokenAccounting.totalTokens;
+            m.cacheHitDenominator += tokenAccounting.cacheHitDenominator;
+            m.requestCount += requests;
+            m.estimated ||= isEstimated;
+            if (statsMode === 'agent') m.modelSet.add(row.raw_model);
+
+            if (!dailyMap[row.date]) {
+                dailyMap[row.date] = {
+                    date: row.date, inputTokens: 0, outputTokens: 0,
+                    cacheCreationTokens: 0, cacheReadTokens: 0,
+                    cost: 0, totalTokens: 0, requestCount: 0,
+                    estimated: false,
+                };
+            }
+            const d = dailyMap[row.date];
+            d.inputTokens += usage.inputTokens;
+            d.outputTokens += usage.outputTokens;
+            d.cacheCreationTokens += usage.cacheCreationTokens;
+            d.cacheReadTokens += usage.cacheReadTokens;
+            d.cost += rowCost;
+            d.totalTokens += tokenAccounting.totalTokens;
+            d.requestCount += requests;
+            d.estimated ||= isEstimated;
+        }
+
+        const cacheHitRate = totalCacheHitDenominator > 0
+            ? totalCacheReadTokens / totalCacheHitDenominator : 0;
+        for (const key of Object.keys(modelStats)) {
+            const m = modelStats[key];
+            m.cacheHitRate = m.cacheHitDenominator > 0 ? m.cacheReadTokens / m.cacheHitDenominator : 0;
+        }
+        const modelList = Object.values(modelStats).sort((a, b) => {
+            if (modelSortBy === 'totalTokens') return b.totalTokens - a.totalTokens;
+            if (modelSortBy === 'cacheHitRate') return b.cacheHitRate - a.cacheHitRate;
+            if (modelSortBy === 'requestCount') return b.requestCount - a.requestCount;
+            return b.totalCost - a.totalCost;
+        });
+        const dailyArr = Object.values(dailyMap);
+        dailyArr.sort((a, b) => sortOrder === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date));
+
         return {
-            agent,
-            appType,
-            model: canonicalModel,
-            pricing,
-            usage,
-            tokenAccounting,
-            entryCost,
+            totalRequests,
+            totalTokens: totalUsageTokens,
+            totalRealTokens: totalUsageTokens,
+            totalCost,
+            hasEstimatedUsage,
+            totalCostFormatted: formatCost(totalCost, currency, exchangeRate),
+            totalInputTokens, totalOutputTokens,
+            totalCacheCreationTokens, totalCacheReadTokens,
+            totalInputFormatted: _formatPossiblyEstimated(totalInputTokens, tokenFormat, hasEstimatedUsage),
+            totalOutputFormatted: _formatPossiblyEstimated(totalOutputTokens, tokenFormat, hasEstimatedUsage),
+            totalRealTokensFormatted: _formatPossiblyEstimated(totalUsageTokens, tokenFormat, hasEstimatedUsage),
+            cacheHitRate,
+            cacheHitRateFormatted: `${(cacheHitRate * 100).toFixed(1)}%`,
+            daily: dailyArr,
+            heatmapWeeks,
+            modelStats: modelList.map(m => {
+                const out = {
+                    ...m,
+                    percentage: totalCost > 0 ? m.totalCost / totalCost : 0,
+                    totalCostFormatted: formatCost(m.totalCost, currency, exchangeRate),
+                    inputTokensFormatted: _formatPossiblyEstimated(m.inputTokens, tokenFormat, m.estimated),
+                    outputTokensFormatted: _formatPossiblyEstimated(m.outputTokens, tokenFormat, m.estimated),
+                    cacheReadTokensFormatted: _formatPossiblyEstimated(m.cacheReadTokens, tokenFormat, m.estimated),
+                    cacheCreationTokensFormatted: _formatPossiblyEstimated(m.cacheCreationTokens, tokenFormat, m.estimated),
+                    cacheHitRateFormatted: `${(m.cacheHitRate * 100).toFixed(1)}%`,
+                    totalTokensFormatted: _formatPossiblyEstimated(m.totalTokens, tokenFormat, m.estimated),
+                };
+                if (m.modelSet) { out.modelCount = m.modelSet.size; delete out.modelSet; }
+                return out;
+            }),
+            daysWithUsage: dailyArr.filter(d => d.totalTokens > 0).length,
+            currency, exchangeRate,
         };
+    }
+
+    /**
+     * Heatmap from pre-aggregated rows. Same windowing as
+     * _getTokenHeatmapWeeks but consumes (date, agent, *Tokens) rows
+     * instead of per-entry records.
+     */
+    _getHeatmapFromRows(rows, tokenFormat, today) {
+        if (
+            this._heatmapCache.entries === rows &&
+            this._heatmapCache.today === today &&
+            this._heatmapCache.tokenFormat === tokenFormat &&
+            this._heatmapCache.heatmapWeeks
+        ) {
+            return this._heatmapCache.heatmapWeeks;
+        }
+        const todayDate = _parseLocalDate(today);
+        const visibleStartDate = new Date(todayDate);
+        visibleStartDate.setDate(todayDate.getDate() - todayDate.getDay() - (HEATMAP_WEEK_COUNT - 1) * 7);
+        const rangeStart = _formatLocalDate(visibleStartDate);
+
+        const dailyMap = {};
+        for (const row of rows) {
+            if (!row.date || row.date < rangeStart || row.date > today) continue;
+            const agent = row.agent || 'claude';
+            const appType = AGENT_APP_TYPE_MAP[agent] || agent;
+            const usage = {
+                inputTokens: row.inputTokens || 0,
+                outputTokens: row.outputTokens || 0,
+                cacheReadTokens: row.cacheReadTokens || 0,
+                cacheCreationTokens: row.cacheCreationTokens || 0,
+            };
+            const tokenAccounting = calculateTokenAccountingForApp(appType, usage);
+            if (!dailyMap[row.date]) dailyMap[row.date] = { totalTokens: 0, requestCount: 0 };
+            dailyMap[row.date].totalTokens += tokenAccounting.totalTokens;
+            dailyMap[row.date].requestCount += Number(row.requestCount) || 1;
+        }
+
+        const heatmapWeeks = [];
+        let maxTokens = 0;
+        for (let week = 0; week < HEATMAP_WEEK_COUNT; week++) {
+            const days = [];
+            for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                const date = new Date(visibleStartDate);
+                date.setDate(visibleStartDate.getDate() + week * 7 + dayOfWeek);
+                const dateKey = _formatLocalDate(date);
+                const inRange = dateKey >= rangeStart && dateKey <= today;
+                const stats = inRange ? (dailyMap[dateKey] || { totalTokens: 0, requestCount: 0 }) : { totalTokens: 0, requestCount: 0 };
+                if (stats.totalTokens > maxTokens) maxTokens = stats.totalTokens;
+                days.push({
+                    date: dateKey, inRange, isFuture: dateKey > today,
+                    totalTokens: stats.totalTokens, requestCount: stats.requestCount,
+                });
+            }
+            heatmapWeeks.push(days);
+        }
+        for (const week of heatmapWeeks) {
+            for (const day of week) {
+                day.totalTokensFormatted = formatTokens(day.totalTokens, tokenFormat);
+                day.level = day.inRange ? _tokenHeatLevel(day.totalTokens, maxTokens) : -1;
+            }
+        }
+        this._heatmapCache = { entries: rows, today, tokenFormat, heatmapWeeks };
+        return heatmapWeeks;
     }
 
     /**
@@ -394,6 +586,7 @@ export class DataProcessor {
             totalTokens: 0,
             totalRealTokens: 0,
             totalCost: 0,
+            hasEstimatedUsage: false,
             totalCostFormatted: formatCost(0, currency, exchangeRate),
             totalInputTokens: 0,
             totalOutputTokens: 0,
@@ -414,6 +607,11 @@ export class DataProcessor {
     }
 }
 
+function _formatPossiblyEstimated(tokens, format, estimated) {
+    const value = formatTokens(tokens, format);
+    return estimated ? `≈${value}` : value;
+}
+
 export function _parseLocalDate(dateStr) {
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
@@ -428,29 +626,9 @@ function _tokenHeatLevel(tokens, maxTokens) {
     return 4;
 }
 
-function _entryRequestCount(entry) {
-    const count = Number(entry.requestCount);
-    return Number.isFinite(count) && count > 0 ? count : 1;
-}
-
 export function _formatLocalDate(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-}
-
-/**
- * Parse the user's model-aliases GSetting ({ "alias": "mainModelId" }) into a
- * plain object. Malformed/empty input falls back to {} so a bad value never
- * breaks aggregation — same defensive idiom as price-overrides parsing.
- */
-function _parseAliasMap(raw) {
-    try {
-        const parsed = JSON.parse(raw || '{}');
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-        return parsed;
-    } catch (_e) {
-        return {};
-    }
 }
