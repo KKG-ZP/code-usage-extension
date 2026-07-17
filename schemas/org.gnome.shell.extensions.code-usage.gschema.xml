@@ -41,11 +41,6 @@
       <summary>自定义截止日期</summary>
       <description>自定义日期范围的截止日期</description>
     </key>
-    <key name="cost-multiplier" type="d">
-      <default>1.0</default>
-      <summary>成本倍率</summary>
-      <description>应用于总成本的倍率，用于货币换算或加价</description>
-    </key>
     <key name="price-overrides" type="s">
       <default>'{}'</default>
       <summary>自定义定价覆盖</summary>

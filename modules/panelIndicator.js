@@ -242,7 +242,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
                     break;
                 case 'cost-currency':
                 case 'cny-exchange-rate':
-                case 'cost-multiplier':
                 case 'price-overrides':
                 case 'model-aliases':
                 case 'sort-order':
@@ -763,7 +762,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
      * Stage 5: set up FileMonitors on the selected agents' log dirs and a
      * low-frequency reconciliation timer (fallback for lost monitor events).
      * A file change marks the agent dirty; a 2s debounce coalesces the burst
-     * into a single worker scan of just the dirty agents.
+     * into a single worker scan. The scan still receives every selected
+     * agent because each worker snapshot is a full replacement, not a patch.
      */
     _setupMonitorsAndReconcile() {
         this._teardownMonitorsAndReconcile();
@@ -817,11 +817,16 @@ class CodeUsageIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Scan only the dirty agents (a subset of the full set), then reload +
-     * render. Used by the FileMonitor path so an agent writing logs doesn't
-     * re-scan every other agent too.
+     * Refresh after one or more selected agents became dirty. Worker scans
+     * publish a complete replacement snapshot, so passing only `dirtyAgents`
+     * here would temporarily erase every unchanged agent from the panel until
+     * the next full reconciliation. Pass the complete current selection; the
+     * worker's file-state cache still skips unchanged files cheaply.
      */
-    async _fullRefreshForAgents(agents) {
+    async _fullRefreshForAgents(dirtyAgents) {
+        if (dirtyAgents.length === 0) return;
+        const agents = this._settings.get_strv('selected-agents');
+        if (agents.length === 0) return;
         const generation = ++this._refreshGeneration;
         this._refreshing = true;
         try {

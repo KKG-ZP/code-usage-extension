@@ -74,7 +74,6 @@ export class DataSource {
             gjs, '-m', workerScript,
             '--extension-path', this._extensionPath,
             '--agents', agents.join(','),
-            '--cost-multiplier', String(this._settings.get_double('cost-multiplier')),
             '--exchange-rate', String(this._settings.get_double('cny-exchange-rate')),
             '--price-overrides', this._settings.get_string('price-overrides'),
             '--model-aliases', this._settings.get_string('model-aliases'),

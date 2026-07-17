@@ -25,20 +25,20 @@ function _pricingInCny(pricing, exchangeRate) {
 }
 
 export class CostCalculator {
-    static calculate(usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
+    static calculate(usage, pricing, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         return CostCalculator.calculateWithCacheSemantics(
-            usage, pricing, costMultiplier, false, exchangeRate
+            usage, pricing, false, exchangeRate
         );
     }
 
-    static calculateForApp(appType, usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
+    static calculateForApp(appType, usage, pricing, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         const inputIncludesCacheRead = CACHE_INCLUSIVE_APP_TYPES.has(appType);
         return CostCalculator.calculateWithCacheSemantics(
-            usage, pricing, costMultiplier, inputIncludesCacheRead, exchangeRate
+            usage, pricing, inputIncludesCacheRead, exchangeRate
         );
     }
 
-    static calculateWithCacheSemantics(usage, pricing, costMultiplier, inputIncludesCacheRead, exchangeRate = DEFAULT_EXCHANGE_RATE) {
+    static calculateWithCacheSemantics(usage, pricing, inputIncludesCacheRead, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         const cnyPricing = _pricingInCny(pricing, exchangeRate);
         let billableInputTokens = usage.inputTokens;
         if (inputIncludesCacheRead) {
@@ -50,22 +50,21 @@ export class CostCalculator {
         const cacheReadCost = usage.cacheReadTokens * cnyPricing.cacheRead / MILLION;
         const cacheWriteCost = usage.cacheCreationTokens * cnyPricing.cacheWrite / MILLION;
 
-        const baseTotal = inputCost + outputCost + cacheReadCost + cacheWriteCost;
-        const totalCost = baseTotal * costMultiplier;
+        const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost;
 
         return {
             inputCost,
             outputCost,
             cacheReadCost,
             cacheWriteCost,
-            baseTotal,
+            baseTotal: totalCost,
             totalCost,
         };
     }
 
-    static tryCalculateForApp(appType, usage, pricing, costMultiplier = 1.0, exchangeRate = DEFAULT_EXCHANGE_RATE) {
+    static tryCalculateForApp(appType, usage, pricing, exchangeRate = DEFAULT_EXCHANGE_RATE) {
         if (!pricing) return null;
-        return CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
+        return CostCalculator.calculateForApp(appType, usage, pricing, exchangeRate);
     }
 }
 

@@ -289,7 +289,6 @@ export class DailyArchive {
             totalTokens, cost, requestCount, breakdown,
             snapshottedAt: now.toISOString(),
             exchangeRate: this._settings.get_double('cny-exchange-rate'),
-            costMultiplier: this._settings.get_double('cost-multiplier'),
             currency: 'CNY',
         };
     }

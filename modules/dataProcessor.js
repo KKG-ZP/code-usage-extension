@@ -23,7 +23,6 @@ export class DataProcessor {
         const tokenFormat = this._settings.get_string('token-display-format');
         const today = _formatLocalDate(new Date());
         const heatmapWeeks = this._getTokenHeatmapWeeks(entries || [], tokenFormat, today);
-        const costMultiplier = this._settings.get_double('cost-multiplier');
         const overridesJson = this._settings.get_string('price-overrides');
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
@@ -69,7 +68,7 @@ export class DataProcessor {
                 usage,
                 tokenAccounting,
                 entryCost,
-            } = this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap });
+            } = this._entryMetrics(entry, { overridesJson, exchangeRate, aliasMap });
 
             totalRequests += requestCount;
             totalInputTokens += usage.inputTokens;
@@ -457,11 +456,10 @@ export class DataProcessor {
      * snapshot a past day's cost identically to how the panel computes it.
      */
     computeEntryMetrics(entry) {
-        const costMultiplier = this._settings.get_double('cost-multiplier');
         const overridesJson = this._settings.get_string('price-overrides');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
         const aliasMap = _parseAliasMap(this._settings.get_string('model-aliases'));
-        return this._entryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap });
+        return this._entryMetrics(entry, { overridesJson, exchangeRate, aliasMap });
     }
 
     _buildDateFilter(preset, customSince, customUntil) {

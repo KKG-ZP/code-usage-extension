@@ -18,7 +18,7 @@
 //   gjs -m usage-worker.js \
 //     --extension-path <abs dir containing modules/> \
 //     --agents claude,codex \
-//     [--cost-multiplier 1.0] [--exchange-rate 7.25] \
+//     [--exchange-rate 7.25] \
 //     [--price-overrides '{}'] [--model-aliases '{}'] \
 //     [--debug] [--help]
 //
@@ -81,7 +81,6 @@ function parseArgs(argv) {
     const opts = {
         extensionPath: null,
         agents: [],
-        costMultiplier: 1.0,
         exchangeRate: 7.25,
         priceOverrides: '{}',
         modelAliases: '{}',
@@ -94,7 +93,6 @@ function parseArgs(argv) {
         switch (a) {
             case '--extension-path': opts.extensionPath = next(); break;
             case '--agents': opts.agents = (next() || '').split(',').map(s => s.trim()).filter(Boolean); break;
-            case '--cost-multiplier': opts.costMultiplier = Number(next()) || 1.0; break;
             case '--exchange-rate': opts.exchangeRate = Number(next()) || 7.25; break;
             case '--price-overrides': opts.priceOverrides = next() || '{}'; break;
             case '--model-aliases': opts.modelAliases = next() || '{}'; break;
@@ -114,7 +112,6 @@ function printHelp() {
 
   --extension-path DIR   absolute path to the extension dir (contains modules/)
   --agents a,b,...       comma-separated agent ids to scan
-  --cost-multiplier F    cost multiplier (default 1.0)
   --exchange-rate F      USD->CNY rate (default 7.25)
   --price-overrides JSON custom pricing overrides (default '{}')
   --model-aliases JSON   alias->canonical model map (default '{}')
@@ -562,7 +559,6 @@ function _decodeTail(b64) {
 
 async function runScan(opts) {
     const costCtx = {
-        costMultiplier: opts.costMultiplier,
         overridesJson: opts.priceOverrides,
         exchangeRate: opts.exchangeRate,
         aliasMap: parseAliasMap(opts.modelAliases),

@@ -20,7 +20,6 @@ function makeSettings(overrides) {
         'token-display-format': 'auto',
         'cost-currency': 'CNY',
         'cny-exchange-rate': 7.25,
-        'cost-multiplier': 1.0,
         'price-overrides': '{}',
         'model-aliases': '{}',
         'date-range-preset': 'all',

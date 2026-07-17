@@ -155,7 +155,7 @@ function _snapshotPath() {
  * expects. Each aggregated row becomes one pseudo-entry; DataProcessor's
  * per-day re-aggregation sums them back to the same totals. The CNY cost is
  * carried via _finalCostCNY so it is shown as-recorded (not re-valued by the
- * current exchange rate / multiplier).
+ * current exchange rate).
  */
 function _snapshotToEntries(snapshot) {
     const rows = snapshot?.dailyUsage || [];

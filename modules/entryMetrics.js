@@ -5,8 +5,8 @@
 // for display formatting).
 //
 // The cost computed here is the *raw* cost in CNY using the caller-supplied
-// exchange rate, cost multiplier, price overrides, and alias map. Snapshots
-// store this value so later汇率/倍率 tweaks don't re-value past days.
+// exchange rate, price overrides, and alias map. Snapshots
+// store this value so later exchange rate tweaks don't re-value past days.
 
 import { CostCalculator, calculateTokenAccountingForApp } from './costCalculator.js';
 import { getPricingForModel } from './pricingResolver.js';
@@ -49,12 +49,12 @@ export function parseAliasMap(raw) {
  *
  * Cost resolution order:
  *   1. entry._finalCostCNY (re-injected from an archive snapshot) — bypass
- *      USD→CNY and the multiplier so archived costs aren't silently
- *      re-valued when the user later tweaks汇率/倍率.
- *   2. entry.costUSD (parser-provided) — multiply by exchangeRate × multiplier.
+ *      USD→CNY so archived costs aren't silently
+ *      re-valued when the user later tweaks the exchange rate.
+ *   2. entry.costUSD (parser-provided) — multiply by exchangeRate.
  *   3. pricing table — full CostCalculator path.
  */
-export function computeEntryMetrics(entry, { costMultiplier, overridesJson, exchangeRate, aliasMap }) {
+export function computeEntryMetrics(entry, { overridesJson, exchangeRate, aliasMap }) {
     const agent = entry._agent || 'claude';
     const appType = AGENT_APP_TYPE_MAP[agent] || agent;
     const canonicalModel = (aliasMap && aliasMap[entry.model]) || entry.model;
@@ -80,10 +80,10 @@ export function computeEntryMetrics(entry, { costMultiplier, overridesJson, exch
     } else if (entry.costUSD != null) {
         const rawCost = Number(entry.costUSD);
         if (Number.isFinite(rawCost) && rawCost > 0) {
-            entryCost = rawCost * exchangeRate * costMultiplier;
+            entryCost = rawCost * exchangeRate;
         }
     } else if (pricing && hasUsageTokens) {
-        const cost = CostCalculator.calculateForApp(appType, usage, pricing, costMultiplier, exchangeRate);
+        const cost = CostCalculator.calculateForApp(appType, usage, pricing, exchangeRate);
         entryCost = cost.totalCost;
     }
 

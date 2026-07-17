@@ -236,26 +236,7 @@ export default class CodeUsagePreferences extends ExtensionPreferences {
             agentGroup.add(row);
         }
 
-        const multiplierGroup = new Adw.PreferencesGroup({
-            title: _('成本计算'),
-            description: _('配置成本倍率和换算'),
-        });
-        page.add(multiplierGroup);
 
-        const multiplierRow = new Adw.SpinRow({
-            title: _('成本倍率'),
-            subtitle: _('应用于总成本的倍率（用于加价或折扣）'),
-            adjustment: new Gtk.Adjustment({
-                lower: 0.1,
-                upper: 10,
-                step_increment: 0.1,
-                page_increment: 1,
-                value: settings.get_double('cost-multiplier'),
-            }),
-            digits: 2,
-        });
-        settings.bind('cost-multiplier', multiplierRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        multiplierGroup.add(multiplierRow);
     }
 
     _buildPricingPage(page, settings, window) {
