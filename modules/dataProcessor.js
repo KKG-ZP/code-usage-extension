@@ -4,7 +4,9 @@ import {
     computeEntryMetrics,
     entryRequestCount as _entryRequestCount,
     parseAliasMap as _parseAliasMap,
+    formatModelDisplayName,
 } from './entryMetrics.js';
+import { getPricingForModel } from './pricingResolver.js';
 
 const HEATMAP_WEEK_COUNT = 16;
 
@@ -80,7 +82,7 @@ export class DataProcessor {
             totalCost += entryCost;
 
             const modelKey = canonicalModel || entry.model || 'unknown';
-            const displayName = pricing ? (pricing.displayName || modelKey) : modelKey;
+            const displayName = pricing ? (pricing.displayName || formatModelDisplayName(modelKey)) : formatModelDisplayName(modelKey);
             // Grouping dimension is driven by stats-mode: 'model' merges across
             // agents (key = model), 'agent' merges across models (key = agent),
             // 'agent-model' keeps the existing composite (key = agent:model).
@@ -223,6 +225,7 @@ export class DataProcessor {
         const currency = this._settings.get_string('cost-currency');
         const exchangeRate = this._settings.get_double('cny-exchange-rate');
         const aliasMap = _parseAliasMap(this._settings.get_string('model-aliases'));
+        const overridesJson = this._settings.get_string('price-overrides');
 
         if (!rows || rows.length === 0) {
             return this._emptyResult(heatmapWeeks);
@@ -282,6 +285,10 @@ export class DataProcessor {
                 : `${agent}:${canonicalModel}`;
 
             if (!modelStats[compositeKey]) {
+                const resolvedPricing = getPricingForModel(canonicalModel, null, overridesJson);
+                const resolvedDisplayName = resolvedPricing
+                    ? (resolvedPricing.displayName || formatModelDisplayName(canonicalModel))
+                    : formatModelDisplayName(canonicalModel);
                 const base = {
                     inputTokens: 0, outputTokens: 0,
                     cacheReadTokens: 0, cacheCreationTokens: 0,
@@ -295,10 +302,10 @@ export class DataProcessor {
                     base.modelSet = new Set();
                 } else if (statsMode === 'model') {
                     base.model = canonicalModel;
-                    base.displayName = canonicalModel;
+                    base.displayName = resolvedDisplayName;
                 } else {
                     base.model = canonicalModel;
-                    base.displayName = canonicalModel;
+                    base.displayName = resolvedDisplayName;
                     base.agent = agent;
                     base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
                 }

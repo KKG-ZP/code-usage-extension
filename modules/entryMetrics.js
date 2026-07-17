@@ -12,6 +12,54 @@ import { CostCalculator, calculateTokenAccountingForApp } from './costCalculator
 import { getPricingForModel } from './pricingResolver.js';
 import { AGENT_APP_TYPE_MAP } from './defaultPricing.js';
 
+const BRAND_WORDS = {
+    'deepseek': 'DeepSeek',
+    'glm': 'GLM',
+    'kimi': 'Kimi',
+    'gpt': 'GPT',
+    'claude': 'Claude',
+    'gemini': 'Gemini',
+    'qwen': 'Qwen',
+    'copilot': 'Copilot',
+    'codex': 'Codex',
+    'kiro': 'Kiro',
+    'openclaw': 'OpenClaw',
+    'hermes': 'Hermes',
+    'goose': 'Goose',
+    'zcode': 'ZCode',
+    'codepilot': 'CodePilot',
+    'codebuff': 'CodeBuff',
+    'amp': 'Amp',
+    'pro': 'Pro',
+    'sol': 'Sol',
+    'mini': 'Mini',
+    'max': 'Max',
+    'ultra': 'Ultra',
+    'lite': 'Lite',
+    'plus': 'Plus',
+    'turbo': 'Turbo',
+    'flash': 'Flash',
+    'think': 'Think',
+    'vision': 'Vision',
+    'preview': 'Preview',
+    'opus': 'Opus',
+    'sonnet': 'Sonnet',
+    'haiku': 'Haiku',
+    'nano': 'Nano',
+};
+
+export function formatModelDisplayName(rawName) {
+    if (!rawName || typeof rawName !== 'string') return rawName || '';
+    return rawName.split('-').map(part => {
+        const lower = part.toLowerCase();
+        const known = BRAND_WORDS[lower];
+        if (known) return known;
+        return part.charAt(0).toUpperCase() + part.slice(1);
+    }).join(' ');
+}
+
+export const FORMATTED_BRAND_WORDS = BRAND_WORDS;
+
 /**
  * Coerce an entry's requestCount to a positive integer, defaulting to 1
  * when missing/invalid. A single API call is the unit of "a request" when
