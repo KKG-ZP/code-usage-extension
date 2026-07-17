@@ -136,7 +136,6 @@ class CodeUsageIndicator extends PanelMenu.Button {
         this._lastData = null;
         this._refreshing = false;
         this._refreshQueued = false;
-        this._queuedShowPlaceholder = false;
         this._historySyncing = false;
         this._refreshGeneration = 0;
         this._destroyed = false;
@@ -204,7 +203,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
                 this._renderTokenHeatmap();
                 this._heatmapDirty = false;
             }
-            this._fullRefresh({ showPlaceholder: true });
+            this._fullRefresh();
         });
 
         this._updateDisplayMode();
@@ -265,7 +264,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
             }
         });
 
-        this._fullRefresh({ showPlaceholder: true });
+        this._fullRefresh();
         // Stage 5: FileMonitor-driven refresh + low-frequency reconciliation
         // replace the fixed-cadence poll loop.
         this._setupMonitorsAndReconcile();
@@ -383,7 +382,7 @@ class CodeUsageIndicator extends PanelMenu.Button {
         });
         this._refreshButton.set_child(refreshIcon);
         this._refreshButton.connect('clicked', () => {
-            this._fullRefresh({ showPlaceholder: true });
+            this._fullRefresh();
         });
         heroHeader.add_child(this._refreshButton);
 
@@ -882,19 +881,19 @@ class CodeUsageIndicator extends PanelMenu.Button {
         // no-op
     }
 
-    async _fullRefresh({ showPlaceholder = false } = {}) {
+    async _fullRefresh() {
         const generation = ++this._refreshGeneration;
         if (this._refreshing) {
             this._refreshQueued = true;
-            this._queuedShowPlaceholder = this._queuedShowPlaceholder || showPlaceholder;
             return;
         }
         this._refreshing = true;
 
-        // Only show "..." when the user explicitly requested a refresh or
-        // when the panel has not displayed any data yet. Auto ticks that
-        // hit the cache and produce no UI change should never flicker.
-        const showLoader = showPlaceholder || this._lastData === null;
+        // Keep the last rendered values visible while refreshing. The
+        // placeholder is only needed on the initial load, before any value
+        // has been rendered; replacing existing values makes every menu open
+        // look like a fresh load and causes an avoidable flicker.
+        const showLoader = this._lastData === null;
         if (showLoader) {
             for (const chip of [this._tokenChip, this._costChip, this._requestsChip]) {
                 chip._label.set_text('...');
@@ -935,10 +934,8 @@ class CodeUsageIndicator extends PanelMenu.Button {
             if (this._destroyed) return;
             this._refreshButton.remove_style_pseudo_class('active');
             if (this._refreshQueued) {
-                const queuedShowPlaceholder = this._queuedShowPlaceholder;
                 this._refreshQueued = false;
-                this._queuedShowPlaceholder = false;
-                this._fullRefresh({ showPlaceholder: queuedShowPlaceholder });
+                this._fullRefresh();
             }
         }
     }
