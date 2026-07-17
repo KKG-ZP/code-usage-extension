@@ -104,6 +104,7 @@ export const DEFAULT_PRICING = {
     'kimi-k2.5': { displayName: 'Kimi K2.5', input: 4.00, output: 21.00, cacheRead: 0.70, cacheWrite: 0, currency: 'CNY' },
     'kimi-k2.6': { displayName: 'Kimi K2.6', input: 6.5, output: 27.00, cacheRead: 1.10, cacheWrite: 0, currency: 'CNY' },
     'kimi-k2.7-code': { displayName: 'Kimi K2.7 Code', input: 6.5, output: 27, cacheRead: 1.3, cacheWrite: 0, currency: 'CNY' },
+    'kimi-k3': { displayName: 'Kimi K3', input: 20, output: 100, cacheRead: 2, cacheWrite: 0, currency: 'CNY' },
     'minimax-m2.1': { displayName: 'MiniMax M2.1', input: 2.1, output: 8.4, cacheRead: 0.21, cacheWrite: 2.625, currency: 'CNY' },
     'minimax-m2.1-lightning': { displayName: 'MiniMax M2.1 Lightning', input: 1.9575, output: 16.8925, cacheRead: 0.2175, cacheWrite: 0, currency: 'CNY' },
     'minimax-m2': { displayName: 'MiniMax M2', input: 1.9575, output: 6.8875, cacheRead: 0.2175, cacheWrite: 0, currency: 'CNY' },
