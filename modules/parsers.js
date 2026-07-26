@@ -781,7 +781,13 @@ function _parseSQLiteRow(agent, row) {
                 outputTokens: tokens.output || tokens.output_tokens || 0,
                 cacheCreationTokens: tokens.cache?.write || tokens.cache_write || 0,
                 cacheReadTokens: tokens.cache?.read || tokens.cache_read || 0,
-                costUSD: data.cost != null ? data.cost : null,
+                // opencode records its own `data.cost`, but its accounting
+                // basis differs from the user's pricing table (different token
+                // scope / currency assumption). Setting costUSD=null routes
+                // through computeEntryMetrics' pricing-table path so every
+                // opencode model is valued at the configured official price
+                // instead of opencode's self-reported cost × exchangeRate.
+                costUSD: null,
             };
         } catch {
             return null;

@@ -636,7 +636,30 @@ async function runScan(opts) {
                     // SQLite: full (no watermark) or incremental (row-id
                     // watermark from cached). parseSQLiteAgent now returns
                     // { entries, lastRowId, lastTimestamp, errorCode }.
-                    const watermark = decision === 'incremental' && cached
+                    //
+                    // CRITICAL: a null/missing cached.last_row_id is an
+                    // invalid watermark — parseSQLiteAgent would fall back to
+                    // a full-table query (no `rowid > ?` clause), but the
+                    // merge path below treats 'incremental' as append-only
+                    // accumulation. Combining a full-table query with the
+                    // incremental merge would re-add every historical row on
+                    // top of the cached contributions, multiplying the totals
+                    // by the number of scans. Detect that case here and
+                    // downgrade to a 'full' decision so we overwrite (not
+                    // accumulate) the cached contributions.
+                    let sqliteDecision = decision;
+                    if (sqliteDecision === 'incremental' && cached?.last_row_id == null) {
+                        // null/undefined watermark is invalid (lost state from a
+                        // prior version/migration): the parser would fall back
+                        // to a full-table query, which the incremental merge
+                        // would re-accumulate on top of cached contributions.
+                        // Downgrade to 'full' so contributions are overwritten.
+                        // Note: last_row_id === 0 is a VALID initial watermark
+                        // (rowid > 0 selects every row), so we don't downgrade
+                        // for 0.
+                        sqliteDecision = 'full';
+                    }
+                    const watermark = sqliteDecision === 'incremental' && cached
                         ? { lastRowId: cached.last_row_id, lastTimestamp: cached.last_timestamp }
                         : null;
                     const qr = await parseSQLiteAgent(agent, info.path, config, watermark);
@@ -672,7 +695,7 @@ async function runScan(opts) {
                     // append-only agents. zcode's overlap re-return is
                     // handled by the worker's contribution rebuild (below).
                     const fileMap = _aggregateEntries(entries, costCtx);
-                    if (decision === 'incremental' && (cached?.contributions?.length || 0) > 0) {
+                    if (sqliteDecision === 'incremental' && (cached?.contributions?.length || 0) > 0) {
                         nextState[info.path].contributions =
                             _mergeContributions(nextState[info.path].contributions, [...fileMap.values()]);
                     } else {
