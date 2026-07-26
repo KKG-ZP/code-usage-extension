@@ -295,6 +295,46 @@ function _parseGeminiJSONObj(raw) {
 // ═══════════════════════════════════════
 // Kimi
 // ═══════════════════════════════════════
+// The active model is NOT in the per-line payload — Kimi writes it to
+// <kimi_root>/config.json as {"model":"kimi-k3"}. Mirror the Rust adapter
+// (ccusage src/adapter/kimi/parser.rs read_model_from_config): walk four
+// parents up from wire.jsonl (session/group/sessions/root) to the kimi root,
+// read config.json's `model`, cache per file. Falls back to 'kimi' (the
+// generic alias → kimi-k2-0905) when config is unreadable, preserving legacy
+// behaviour so K2 users keep their existing pricing.
+const _kimiModelCache = new Map();
+const KIMI_DEFAULT_MODEL = 'kimi';
+
+function _readKimiModelForWireFile(filePath) {
+    const cached = _kimiModelCache.get(filePath);
+    if (cached !== undefined) return cached;
+
+    let model = KIMI_DEFAULT_MODEL;
+    try {
+        const wireFile = Gio.File.new_for_path(filePath);
+        // wire.jsonl → session → group → sessions → kimi root
+        const rootFile = wireFile.get_parent()?.get_parent()?.get_parent()?.get_parent();
+        if (rootFile) {
+            const configFile = rootFile.get_child('config.json');
+            if (configFile.query_exists(null)) {
+                const [ok, bytes] = configFile.load_contents(null);
+                if (ok && bytes && bytes.length) {
+                    const text = new TextDecoder().decode(bytes);
+                    const cfg = JSON.parse(text);
+                    if (typeof cfg.model === 'string' && cfg.model.trim()) {
+                        model = cfg.model.trim();
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        _debug(`Kimi config.json read failed (${filePath}): ${e?.message || e}`);
+    }
+
+    _kimiModelCache.set(filePath, model);
+    return model;
+}
+
 export function parseKimiLine(line, filePath) {
     try {
         const raw = JSON.parse(line);
@@ -305,7 +345,7 @@ export function parseKimiLine(line, filePath) {
         const tu = payload.token_usage;
         return {
             date: _extractDate(raw.timestamp),
-            model: 'kimi',
+            model: _readKimiModelForWireFile(filePath),
             inputTokens: tu.input_other || 0,
             outputTokens: tu.output || 0,
             cacheCreationTokens: tu.input_cache_creation || 0,

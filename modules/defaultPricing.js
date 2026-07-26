@@ -316,6 +316,7 @@ export const MODEL_PRICING_ALIASES = {
     'glm-4.7-latest': 'glm-4.7',
     'glm-5-latest': 'glm-5',
     'glm-5.1-latest': 'glm-5.1',
+    'glm-5.2-promo': 'glm-5.2',
     'qwen-max': 'qwen3-max',
     'qwen-max-latest': 'qwen3-max',
     'qwen-plus': 'qwen3.5-plus',
