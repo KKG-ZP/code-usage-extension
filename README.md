@@ -12,7 +12,7 @@
 
 ## 支持的数据源
 
-当前支持 Claude Code、Codex、Gemini、Kimi、OpenClaw、pi-agent、Qwen、GitHub Copilot CLI、Amp、CodeBuff、OpenCode、Goose、Hermes、Kilo、ZCode 等编码代理。
+当前支持 Claude Code、Codex、Gemini、Kimi、OpenClaw、Pi Agent、Qwen、GitHub Copilot CLI、Amp、CodeBuff、OpenCode、Goose、Hermes、Kilo、ZCode 等编码代理。
 
 OpenCode、Goose、Hermes、Kilo 和 ZCode 使用 SQLite 数据源，需要系统安装 `sqlite3` 命令行工具。ZCode 数据从 `~/.zcode/cli/db/db.sqlite` 读取。
 

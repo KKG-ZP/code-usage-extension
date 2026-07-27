@@ -98,7 +98,7 @@ export const AGENT_CONFIGS = {
         recursive: true,
     },
     pi: {
-        name: 'pi-agent',
+        name: 'Pi Agent',
         appType: 'pi',
         dirs: () => {
             const d = expandHome(GLib.getenv('PI_AGENT_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.pi', 'agent', 'sessions']);
