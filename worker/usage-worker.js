@@ -52,7 +52,8 @@ import {
 // aggregated rows. file_state entries with an older version are forced to
 // a full re-parse. Per-agent versioning is deferred; a single global
 // version covers stage 1-2. v2: goose model_config field-name fix.
-const PARSER_VERSION = 4;
+// v5: Kimi Code wire format (usage.record) + ~/.kimi-code dir.
+const PARSER_VERSION = 5;
 
 const TEXT_DECODER = new TextDecoder('utf-8');
 const READ_CHUNK_BYTES = 256 * 1024;

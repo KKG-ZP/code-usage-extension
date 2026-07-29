@@ -76,10 +76,10 @@ export const AGENT_CONFIGS = {
         recursive: true,
     },
     kimi: {
-        name: 'Kimi',
+        name: 'Kimi Code',
         appType: 'kimi',
         dirs: () => {
-            const d = expandHome(GLib.getenv('KIMI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.kimi']);
+            const d = expandHome(GLib.getenv('KIMI_DATA_DIR')) || GLib.build_filenamev([GLib.get_home_dir(), '.kimi-code']);
             return [d];
         },
         pattern: /wire\.jsonl$/,
