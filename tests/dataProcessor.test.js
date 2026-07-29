@@ -127,6 +127,47 @@ async function main() {
     assert(estimated.modelStats[0].totalTokensFormatted.startsWith('≈'),
         `estimated model formatting: ${estimated.modelStats[0].totalTokensFormatted}`);
 
+    // 6. 同一模型来自不同 provider/raw_model 时，按映射后的显示名合并为一条
+    //    （glm-5.2:cloud 与 glm-5.2 解析到同一 displayName 'GLM-5.2'）
+    const sMerge = makeSettings({
+        'stats-mode': 'model',
+        'date-range-preset': 'today',
+    });
+    const procMerge = new DataProcessor(sMerge);
+    const mergeResult = procMerge.processAggregatedRows([
+        { date: todayStr, agent: 'zcode', raw_model: 'glm-5.2:cloud',
+          inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, cacheCreationTokens: 0,
+          requestCount: 3, cost: 1.0 },
+        { date: todayStr, agent: 'codex', raw_model: 'glm-5.2',
+          inputTokens: 2000, outputTokens: 800, cacheReadTokens: 0, cacheCreationTokens: 0,
+          requestCount: 4, cost: 2.0 },
+    ]);
+    assert(mergeResult.modelStats.length === 1,
+        `merged model count: ${mergeResult.modelStats.length}`);
+    assert(mergeResult.modelStats[0].displayName === 'GLM-5.2',
+        `merged displayName: ${mergeResult.modelStats[0].displayName}`);
+    assert(mergeResult.modelStats[0].requestCount === 7,
+        `merged requestCount: ${mergeResult.modelStats[0].requestCount}`);
+
+    // 7. agent-model 模式下，同一 agent 不同 raw_model 解析到同一 displayName 时也合并
+    const sAgentModelMerge = makeSettings({
+        'stats-mode': 'agent-model',
+        'date-range-preset': 'today',
+    });
+    const procAMMerge = new DataProcessor(sAgentModelMerge);
+    const amResult = procAMMerge.processAggregatedRows([
+        { date: todayStr, agent: 'codex', raw_model: 'glm-5.2:cloud',
+          inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, cacheCreationTokens: 0,
+          requestCount: 3, cost: 1.0 },
+        { date: todayStr, agent: 'codex', raw_model: 'glm-5.2',
+          inputTokens: 2000, outputTokens: 800, cacheReadTokens: 0, cacheCreationTokens: 0,
+          requestCount: 4, cost: 2.0 },
+    ]);
+    assert(amResult.modelStats.length === 1,
+        `agent-model merged count: ${amResult.modelStats.length}`);
+    assert(amResult.modelStats[0].requestCount === 7,
+        `agent-model merged requestCount: ${amResult.modelStats[0].requestCount}`);
+
     print('dataProcessor tests passed');
 }
 

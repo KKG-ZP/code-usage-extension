@@ -1,5 +1,5 @@
 // Ported from cc-switch pricing resolution logic
-// Multi-step model matching: exact -> alias -> namespace strip -> suffix strip -> prefix -> fallback
+// Multi-step model matching: alias -> exact -> namespace strip -> suffix strip -> prefix -> fallback
 
 import { DEFAULT_PRICING, MODEL_PRICING_ALIASES } from './defaultPricing.js';
 
@@ -34,12 +34,14 @@ function _normalizeRawModelId(modelId) {
         .replace(/_/g, '-');
 }
 
+// 先别名映射到标准模型名，再按标准名查价格表
 function _lookupPricing(allPricing, candidate) {
     if (!candidate) return null;
-    if (allPricing[candidate]) return allPricing[candidate];
 
     const alias = MODEL_PRICING_ALIASES[candidate];
     if (alias && allPricing[alias]) return allPricing[alias];
+
+    if (allPricing[candidate]) return allPricing[candidate];
 
     return null;
 }

@@ -83,12 +83,10 @@ export class DataProcessor {
 
             const modelKey = canonicalModel || entry.model || 'unknown';
             const displayName = pricing ? (pricing.displayName || formatModelDisplayName(modelKey)) : formatModelDisplayName(modelKey);
-            // Grouping dimension is driven by stats-mode: 'model' merges across
-            // agents (key = model), 'agent' merges across models (key = agent),
-            // 'agent-model' keeps the existing composite (key = agent:model).
-            const compositeKey = statsMode === 'model' ? modelKey
+            // 分组键用映射后的显示名，使同一模型来自不同 provider 时合并为一条
+            const compositeKey = statsMode === 'model' ? displayName
                 : statsMode === 'agent' ? agent
-                : `${agent}:${modelKey}`;
+                : `${agent}:${displayName}`;
 
             if (!modelStats[compositeKey]) {
                 const base = {
@@ -124,7 +122,7 @@ export class DataProcessor {
             modelStats[compositeKey].totalTokens += tokenAccounting.totalTokens;
             modelStats[compositeKey].cacheHitDenominator += tokenAccounting.cacheHitDenominator;
             modelStats[compositeKey].requestCount += requestCount;
-            if (statsMode === 'agent') modelStats[compositeKey].modelSet.add(modelKey);
+            if (statsMode === 'agent') modelStats[compositeKey].modelSet.add(displayName);
 
             if (!dailyMap[entry.date]) {
                 dailyMap[entry.date] = {
@@ -280,15 +278,16 @@ export class DataProcessor {
             // Alias applies at the display/grouping layer only; raw_model is
             // the stored identity.
             const canonicalModel = (aliasMap && aliasMap[row.raw_model]) || row.raw_model || 'unknown';
-            const compositeKey = statsMode === 'model' ? canonicalModel
+            const resolvedPricing = getPricingForModel(canonicalModel, null, overridesJson);
+            const displayName = resolvedPricing
+                ? (resolvedPricing.displayName || formatModelDisplayName(canonicalModel))
+                : formatModelDisplayName(canonicalModel);
+            // 分组键用映射后的显示名，使同一模型来自不同 provider 时合并为一条
+            const compositeKey = statsMode === 'model' ? displayName
                 : statsMode === 'agent' ? agent
-                : `${agent}:${canonicalModel}`;
+                : `${agent}:${displayName}`;
 
             if (!modelStats[compositeKey]) {
-                const resolvedPricing = getPricingForModel(canonicalModel, null, overridesJson);
-                const resolvedDisplayName = resolvedPricing
-                    ? (resolvedPricing.displayName || formatModelDisplayName(canonicalModel))
-                    : formatModelDisplayName(canonicalModel);
                 const base = {
                     inputTokens: 0, outputTokens: 0,
                     cacheReadTokens: 0, cacheCreationTokens: 0,
@@ -302,10 +301,10 @@ export class DataProcessor {
                     base.modelSet = new Set();
                 } else if (statsMode === 'model') {
                     base.model = canonicalModel;
-                    base.displayName = resolvedDisplayName;
+                    base.displayName = displayName;
                 } else {
                     base.model = canonicalModel;
-                    base.displayName = resolvedDisplayName;
+                    base.displayName = displayName;
                     base.agent = agent;
                     base.agentName = AGENT_DISPLAY_NAMES[agent] || agent;
                 }
@@ -321,7 +320,7 @@ export class DataProcessor {
             m.cacheHitDenominator += tokenAccounting.cacheHitDenominator;
             m.requestCount += requests;
             m.estimated ||= isEstimated;
-            if (statsMode === 'agent') m.modelSet.add(row.raw_model);
+            if (statsMode === 'agent') m.modelSet.add(displayName);
 
             if (!dailyMap[row.date]) {
                 dailyMap[row.date] = {
